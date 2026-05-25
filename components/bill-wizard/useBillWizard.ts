@@ -252,6 +252,20 @@ export function useBillWizard(
     }));
   }, [memberIds]);
 
+  const uncheckAllItem = useCallback((itemId: string) => {
+    setState((s) => ({
+      ...s,
+      lineItems: s.lineItems.map((item) =>
+        item.id !== itemId
+          ? item
+          : {
+              ...item,
+              participants: item.participants.map((p) => ({ ...p, parts: 0 })),
+            }
+      ),
+    }));
+  }, []);
+
   const equalSplitAll = useCallback(() => {
     setState((s) => ({
       ...s,
@@ -357,6 +371,7 @@ export function useBillWizard(
     updateTaxTip,
     setParticipantParts,
     equalSplitItem,
+    uncheckAllItem,
     equalSplitAll,
     // Step 3
     setPayment,

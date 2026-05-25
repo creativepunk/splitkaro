@@ -167,7 +167,7 @@ function ItemsAndSharesStep({
   participants: WizardParticipant[];
   onNext: () => void;
 }) {
-  const { state, setEstablishmentName, updateItem, addItem, removeItem, updateTaxTip, setParticipantParts, equalSplitItem, equalSplitAll } = wizard;
+  const { state, setEstablishmentName, updateItem, addItem, removeItem, updateTaxTip, setParticipantParts, equalSplitItem, uncheckAllItem, equalSplitAll } = wizard;
   const [splitItemId, setSplitItemId] = useState<string | null>(null);
 
   const allSharesValid = state.lineItems.every(
@@ -259,12 +259,13 @@ function ItemsAndSharesStep({
 
               {/* Desktop dropdown (md+) */}
               {isOpen && (
-                <div className="hidden md:block absolute right-0 top-full mt-1.5 z-50 w-72 rounded-2xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl">
+                <div className="hidden md:block absolute left-0 right-0 top-full mt-1.5 z-50 rounded-2xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl">
                   <SplitPanelContent
                     item={item}
                     participants={participants}
                     onSetParts={(uid, parts) => setParticipantParts(item.id, uid, parts)}
                     onEqualSplit={() => equalSplitItem(item.id)}
+                    onUncheckAll={() => uncheckAllItem(item.id)}
                     onClose={closePanel}
                   />
                 </div>
@@ -294,6 +295,7 @@ function ItemsAndSharesStep({
               participants={participants}
               onSetParts={(uid, parts) => setParticipantParts(splitItem.id, uid, parts)}
               onEqualSplit={() => equalSplitItem(splitItem.id)}
+              onUncheckAll={() => uncheckAllItem(splitItem.id)}
               onClose={closePanel}
             />
           </div>
@@ -358,12 +360,14 @@ function SplitPanelContent({
   participants,
   onSetParts,
   onEqualSplit,
+  onUncheckAll,
   onClose,
 }: {
   item: WizardLineItem;
   participants: WizardParticipant[];
   onSetParts: (userId: string, parts: number) => void;
   onEqualSplit: () => void;
+  onUncheckAll: () => void;
   onClose: () => void;
 }) {
   const totalParts = item.participants.reduce((s, p) => s + p.parts, 0);
@@ -450,12 +454,20 @@ function SplitPanelContent({
         })}
       </div>
 
-      <button
-        onClick={onEqualSplit}
-        className="mt-3 w-full text-xs font-medium text-brand-600 dark:text-brand-400 py-2 rounded-lg border border-brand-200 dark:border-brand-800 hover:bg-brand-50 dark:hover:bg-brand-950/30 transition-colors"
-      >
-        Equal split
-      </button>
+      <div className="mt-3 flex gap-2">
+        <button
+          onClick={onEqualSplit}
+          className="flex-1 text-xs font-medium text-brand-600 dark:text-brand-400 py-2 rounded-lg border border-brand-200 dark:border-brand-800 hover:bg-brand-50 dark:hover:bg-brand-950/30 transition-colors"
+        >
+          Equal split
+        </button>
+        <button
+          onClick={onUncheckAll}
+          className="flex-1 text-xs font-medium text-zinc-500 dark:text-zinc-400 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
+        >
+          Uncheck all
+        </button>
+      </div>
     </div>
   );
 }
