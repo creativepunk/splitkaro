@@ -20,6 +20,8 @@ interface Props {
   amountLabel: string;
   amountColor: string;
   amountSign: string;
+  /** When true: no card border/bg — renders as a flat row inside a parent container */
+  flat?: boolean;
 }
 
 export function ExpenseRow({
@@ -30,6 +32,7 @@ export function ExpenseRow({
   amountLabel,
   amountColor,
   amountSign,
+  flat = false,
 }: Props) {
   const [mode, setMode] = useState<"view" | "edit" | "confirmDelete">("view");
   const [desc, setDesc] = useState(expense.description);
@@ -126,7 +129,7 @@ export function ExpenseRow({
   }
 
   return (
-    <div className="flex items-center gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+    <div className={flat ? "flex items-center gap-4 px-4 py-3.5" : "flex items-center gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900"}>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-zinc-900 dark:text-white truncate">{expense.description}</p>
         <p className="text-xs text-zinc-500">
