@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import type { ParsedReceipt } from "@/app/api/ocr/route";
+import type { ParsedReceipt } from "@/lib/parseReceipt";
 import { calculateBillBalances, type BillBalanceResult } from "@/lib/ledger";
 
 // ---------------------------------------------------------------------------
@@ -104,7 +104,7 @@ export function useBillWizard(participants: WizardParticipant[]) {
 
   // ── Step 1: OCR ──────────────────────────────────────────────────────────
   const applyOCRResult = useCallback(
-    (receipt: ParsedReceipt, blobUrl: string) => {
+    (receipt: ParsedReceipt) => {
       setState((s) => {
         const lineItems = receipt.line_items.map((item) => ({
           id: makeId(),
@@ -117,7 +117,7 @@ export function useBillWizard(participants: WizardParticipant[]) {
         const subtotalCents = lineItems.reduce((s, i) => s + i.totalCents, 0);
         return {
           ...s,
-          receiptBlobUrl: blobUrl,
+          receiptBlobUrl: null,
           establishmentName: receipt.establishment_name,
           lineItems,
           subtotalCents,

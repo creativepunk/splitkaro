@@ -52,7 +52,7 @@ export function BillSplitterWizard({ participants, onComplete }: BillSplitterWiz
         {state.step === 1 && (
           <ReceiptUploadStep
             ocr={ocr}
-            onResult={(receipt, blobUrl) => wizard.applyOCRResult(receipt, blobUrl)}
+            onResult={(receipt) => wizard.applyOCRResult(receipt)}
             onSkip={wizard.skipToManual}
           />
         )}
@@ -82,9 +82,7 @@ function ReceiptUploadStep({
   onSkip,
 }: {
   ocr: ReturnType<typeof useOCR>;
-  onResult: Parameters<typeof useOCR["prototype"]["scan"]> extends never
-    ? never
-    : (r: NonNullable<Extract<ReturnType<typeof useOCR>["status"], { state: "success" }>["receipt"]>, url: string) => void;
+  onResult: (receipt: NonNullable<Extract<ReturnType<typeof useOCR>["status"], { state: "success" }>["receipt"]>) => void;
   onSkip: () => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -97,7 +95,7 @@ function ReceiptUploadStep({
   };
 
   if (ocr.status.state === "success") {
-    onResult(ocr.status.receipt, ocr.status.blobUrl);
+    onResult(ocr.status.receipt);
     return null;
   }
 

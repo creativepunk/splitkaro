@@ -1,18 +1,22 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import type { ParsedReceipt } from "@/app/api/ocr/route";
+import { parseReceiptText, type ParsedReceipt } from "@/lib/parseReceipt";
 
 // ---------------------------------------------------------------------------
-// State machine for the OCR lifecycle
+// State machine
 // ---------------------------------------------------------------------------
 
-type OCRStatus =
+export type OCRStatus =
   | { state: "idle" }
   | { state: "uploading" }
-  | { state: "analyzing"; message: string; blobUrl: string }
-  | { state: "success"; receipt: ParsedReceipt; blobUrl: string }
+  | { state: "analyzing"; message: string }
+  | { state: "success"; receipt: ParsedReceipt }
   | { state: "error"; message: string };
+
+// ---------------------------------------------------------------------------
+// Hook — runs Tesseract.js entirely in the browser, no API key required
+// ---------------------------------------------------------------------------
 
 export function useOCR() {
   const [status, setStatus] = useState<OCRStatus>({ state: "idle" });
@@ -20,73 +24,40 @@ export function useOCR() {
   const scan = useCallback(async (file: File) => {
     setStatus({ state: "uploading" });
 
-    const form = new FormData();
-    form.append("file", file);
-
-    let response: Response;
     try {
-      response = await fetch("/api/ocr", { method: "POST", body: form });
-    } catch {
-      setStatus({ state: "error", message: "Network error. Check your connection." });
-      return;
-    }
+      // Dynamic import keeps Tesseract's WASM out of the initial bundle
+      const { createWorker } = await import("tesseract.js");
 
-    if (!response.ok || !response.body) {
-      // Try to extract a meaningful error message from the response body
-      let msg = "Server error. Please try again.";
-      try {
-        const body = await response.clone().json();
-        if (typeof body?.error === "string") msg = body.error;
-      } catch { /* ignore */ }
-      setStatus({ state: "error", message: msg });
-      return;
-    }
+      setStatus({ state: "analyzing", message: "Loading OCR engine…" });
 
-    // --- Consume SSE stream ---
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const parts = buffer.split("\n\n");
-      buffer = parts.pop() ?? "";
-
-      for (const chunk of parts) {
-        const eventLine = chunk.match(/^event: (\w+)/m)?.[1];
-        const dataLine = chunk.match(/^data: (.+)/m)?.[1];
-        if (!eventLine || !dataLine) continue;
-
-        let payload: Record<string, unknown>;
-        try {
-          payload = JSON.parse(dataLine);
-        } catch {
-          continue;
-        }
-
-        switch (eventLine) {
-          case "status":
+      const worker = await createWorker("eng", undefined as unknown as number, {
+        logger: (m: { status: string; progress: number }) => {
+          if (m.status === "recognizing text") {
             setStatus({
               state: "analyzing",
-              message: payload.message as string,
-              blobUrl: (payload.blobUrl as string) ?? "",
+              message: `Scanning receipt… ${Math.round(m.progress * 100)}%`,
             });
-            break;
-          case "result":
-            setStatus({
-              state: "success",
-              receipt: payload.receipt as ParsedReceipt,
-              blobUrl: payload.blobUrl as string,
-            });
-            break;
-          case "error":
-            setStatus({ state: "error", message: payload.message as string });
-            break;
-        }
-      }
+          }
+        },
+      });
+
+      setStatus({ state: "analyzing", message: "Reading receipt…" });
+
+      const {
+        data: { text },
+      } = await worker.recognize(file);
+      await worker.terminate();
+
+      const receipt = parseReceiptText(text);
+      setStatus({ state: "success", receipt });
+    } catch (err) {
+      setStatus({
+        state: "error",
+        message:
+          err instanceof Error
+            ? err.message
+            : "OCR failed. Please enter items manually.",
+      });
     }
   }, []);
 
