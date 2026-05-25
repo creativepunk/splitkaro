@@ -2,16 +2,16 @@
  * POST /api/ocr
  *
  * Accepts a receipt image (multipart/form-data), converts it to base64
- * in-memory, then sends it to Claude for structured extraction.
+ * in-memory, then sends it to Gemini Flash for structured extraction.
  * Returns a streaming SSE response so the UI shows progress.
  *
  * Body: FormData { file: File }
  * Response: text/event-stream — final event is "result" with parsed JSON
  *
- * Required env var: ANTHROPIC_API_KEY
+ * Required env var: GEMINI_API_KEY
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 
@@ -45,14 +45,12 @@ export type ParsedReceipt = z.infer<typeof ParsedReceiptSchema>;
 
 export const maxDuration = 60;
 
-const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
-type AllowedMediaType = (typeof ALLOWED_TYPES)[number];
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
 
 export async function POST(req: NextRequest) {
-  // ── Validate API key early so we surface a clear error ──────────────────
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
     return new Response(
-      JSON.stringify({ error: "ANTHROPIC_API_KEY is not configured on the server." }),
+      JSON.stringify({ error: "GEMINI_API_KEY is not configured on the server." }),
       { status: 503 }
     );
   }
@@ -68,12 +66,10 @@ export async function POST(req: NextRequest) {
     return new Response(JSON.stringify({ error: "File too large (max 10 MB)" }), { status: 413 });
   }
 
-  // Normalise HEIC → treat as jpeg for Claude (most HEIC is JPEG-encoded)
-  const mediaType: AllowedMediaType = ALLOWED_TYPES.includes(file.type as AllowedMediaType)
-    ? (file.type as AllowedMediaType)
-    : "image/jpeg";
+  // Gemini supports HEIC natively; map unknown types to jpeg
+  const mimeType = ALLOWED_TYPES.includes(file.type) ? file.type : "image/jpeg";
 
-  // Convert file to base64 in-memory — no blob upload needed
+  // Convert to base64 in-memory
   const arrayBuffer = await file.arrayBuffer();
   const base64 = Buffer.from(arrayBuffer).toString("base64");
 
@@ -90,29 +86,19 @@ export async function POST(req: NextRequest) {
       send("status", { message: "Analyzing receipt…" });
 
       try {
-        const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
-        const message = await client.messages.create({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 1024,
-          messages: [
-            {
-              role: "user",
-              content: [
-                {
-                  type: "image",
-                  source: { type: "base64", media_type: mediaType, data: base64 },
-                },
-                { type: "text", text: EXTRACTION_PROMPT },
-              ],
-            },
-          ],
-        });
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
         send("status", { message: "Extracting line items…" });
 
-        const rawText =
-          message.content[0].type === "text" ? message.content[0].text : "";
+        const result = await model.generateContent([
+          {
+            inlineData: { mimeType, data: base64 },
+          },
+          EXTRACTION_PROMPT,
+        ]);
+
+        const rawText = result.response.text();
 
         // Accept ```json ... ``` block or bare object
         const jsonMatch =
@@ -145,7 +131,7 @@ export async function POST(req: NextRequest) {
       } catch (err: unknown) {
         const msg =
           err instanceof Error ? err.message : "OCR processing failed. Please enter items manually.";
-        console.error("[OCR] error:", err);
+        console.error("[OCR] Gemini error:", err);
         send("error", { message: msg });
       } finally {
         controller.close();
