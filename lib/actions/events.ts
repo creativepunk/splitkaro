@@ -84,6 +84,90 @@ export async function updateEvent(
 }
 
 // ---------------------------------------------------------------------------
+// Add / remove event participants
+// Returns names of participants that could NOT be removed (have expenses).
+// ---------------------------------------------------------------------------
+
+export async function updateEventParticipants(
+  eventId: string,
+  { add = [], remove = [] }: { add?: string[]; remove?: string[] }
+): Promise<{ blockedNames: string[] }> {
+  const user = await requireUser();
+
+  const event = await prisma.event.findFirst({
+    where: { id: eventId, participants: { some: { userId: user.id } } },
+    select: { id: true, createdById: true },
+  });
+  if (!event) throw new Error("Event not found");
+
+  // Never remove the creator or yourself from the event
+  const safeRemove = remove.filter(
+    (id) => id !== event.createdById && id !== user.id
+  );
+
+  let blockedNames: string[] = [];
+
+  if (safeRemove.length > 0) {
+    // Find which of the to-remove users actually have expenses in this event
+    const [fractions, payments] = await Promise.all([
+      prisma.itemFraction.findMany({
+        where: {
+          userId: { in: safeRemove },
+          lineItem: { bill: { establishment: { eventId } } },
+        },
+        select: { userId: true, user: { select: { name: true } } },
+        distinct: ["userId"],
+      }),
+      prisma.payment.findMany({
+        where: {
+          userId: { in: safeRemove },
+          bill: { establishment: { eventId } },
+        },
+        select: { userId: true, user: { select: { name: true } } },
+        distinct: ["userId"],
+      }),
+    ]);
+
+    const blockedIds = new Set([
+      ...fractions.map((f) => f.userId),
+      ...payments.map((p) => p.userId),
+    ]);
+
+    blockedNames = [
+      ...fractions.map((f) => f.user.name ?? "Unknown"),
+      ...payments
+        .filter((p) => !fractions.find((f) => f.userId === p.userId))
+        .map((p) => p.user.name ?? "Unknown"),
+    ];
+
+    const canRemove = safeRemove.filter((id) => !blockedIds.has(id));
+    if (canRemove.length > 0) {
+      await prisma.eventParticipant.deleteMany({
+        where: { eventId, userId: { in: canRemove } },
+      });
+    }
+  }
+
+  if (add.length > 0) {
+    // Filter out IDs already in the event to avoid unique-constraint errors
+    const existing = await prisma.eventParticipant.findMany({
+      where: { eventId, userId: { in: add } },
+      select: { userId: true },
+    });
+    const existingIds = new Set(existing.map((e) => e.userId));
+    const newIds = add.filter((id) => !existingIds.has(id));
+    if (newIds.length > 0) {
+      await prisma.eventParticipant.createMany({
+        data: newIds.map((uid) => ({ eventId, userId: uid })),
+      });
+    }
+  }
+
+  revalidatePath(`/events/${eventId}`);
+  return { blockedNames };
+}
+
+// ---------------------------------------------------------------------------
 // Get all events where the current user is a participant
 // ---------------------------------------------------------------------------
 

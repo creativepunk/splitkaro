@@ -12,14 +12,17 @@ import { BalanceSheet } from "@/components/BalanceSheet";
 import { formatCents } from "@/lib/utils";
 import { calculateBillBalances } from "@/lib/ledger";
 import { EditEventHeader } from "./EditEventHeader";
+import { EditParticipants } from "./EditParticipants";
+import { getMyParticipants } from "@/lib/actions/contacts";
 
 export const metadata: Metadata = { title: "Event" };
 
 export default async function EventPage({ params }: { params: { eventId: string } }) {
-  const [me, event, balanceSummary] = await Promise.all([
+  const [me, event, balanceSummary, allParticipants] = await Promise.all([
     requireUser(),
     getEvent(params.eventId),
     getEventBalances(params.eventId),
+    getMyParticipants(),
   ]);
 
   const members = event.participants.map((p) => ({
@@ -31,6 +34,33 @@ export default async function EventPage({ params }: { params: { eventId: string 
   const eventTotal = event.establishments.reduce(
     (s, est) => s + est.bills.reduce((s2, b) => s2 + b.totalCents, 0),
     0
+  );
+
+  // Compute which participant IDs have expenses — derived from already-loaded data
+  const usersWithExpenses = new Set<string>();
+  for (const est of event.establishments) {
+    for (const bill of est.bills) {
+      for (const item of bill.lineItems) {
+        for (const frac of item.fractions) usersWithExpenses.add(frac.userId);
+      }
+      for (const pmt of bill.payments) usersWithExpenses.add(pmt.userId);
+    }
+  }
+
+  const currentParticipantIds = new Set(event.participants.map((p) => p.userId));
+
+  const participantsWithFlags = event.participants.map((p) => ({
+    id: p.userId,
+    name: p.user.name,
+    image: p.user.image,
+    isMe: p.userId === me.id,
+    isCreator: p.userId === event.createdById,
+    hasExpenses: usersWithExpenses.has(p.userId),
+  }));
+
+  // Contacts not yet in this event
+  const availableContacts = allParticipants.filter(
+    (p) => !currentParticipantIds.has(p.id) && p.id !== me.id
   );
 
   return (
@@ -54,13 +84,12 @@ export default async function EventPage({ params }: { params: { eventId: string 
             </div>
           )}
         </div>
-        <div className="flex flex-wrap gap-1.5 mt-2">
-          {members.map((m) => (
-            <div key={m.id} className="flex items-center gap-1 rounded-full bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5">
-              <Avatar name={m.name} image={m.image} size="xs" />
-              <span className="text-xs text-zinc-600 dark:text-zinc-300">{m.name}</span>
-            </div>
-          ))}
+        <div className="mt-2">
+          <EditParticipants
+            eventId={event.id}
+            participants={participantsWithFlags}
+            available={availableContacts}
+          />
         </div>
       </div>
 
