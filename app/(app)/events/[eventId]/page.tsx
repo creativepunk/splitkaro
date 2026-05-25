@@ -3,16 +3,10 @@ import Link from "next/link";
 import { getEvent } from "@/lib/actions/events";
 import { getEventBalances } from "@/lib/actions/balances";
 import { requireUser } from "@/lib/server-auth";
-import { Card, CardContent, CardHeader } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
-import { Avatar } from "@/components/ui/Avatar";
-import { EmptyState } from "@/components/ui/EmptyState";
-import { BalanceSheet } from "@/components/BalanceSheet";
 import { formatCents } from "@/lib/utils";
-import { calculateBillBalances } from "@/lib/ledger";
 import { EditEventHeader } from "./EditEventHeader";
 import { EditParticipants } from "./EditParticipants";
+import { EventTabs } from "./EventTabs";
 import { getMyParticipants } from "@/lib/actions/contacts";
 
 export const metadata: Metadata = { title: "Event" };
@@ -93,142 +87,40 @@ export default async function EventPage({ params }: { params: { eventId: string 
         </div>
       </div>
 
-      {/* Add bill */}
-      <Link href={`/events/${params.eventId}/bills/new`}>
-        <Button variant="primary" size="lg" className="w-full">
-          + Add bill
-        </Button>
-      </Link>
-
-      {/* Balances (only show after first bill) */}
-      {eventTotal > 0 && (
-        <Card>
-          <CardHeader>
-            <h2 className="font-semibold text-zinc-900 dark:text-white">Balances</h2>
-          </CardHeader>
-          <CardContent>
-            <BalanceSheet summary={balanceSummary} members={members} />
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Establishments */}
-      {event.establishments.length === 0 ? (
-        <EmptyState
-          icon="🏪"
-          title="No bills yet"
-          description="Add a bill for a restaurant, activity, or any expense from this event."
-        />
-      ) : (
-        <div className="flex flex-col gap-4">
-          {event.establishments.map((est) => (
-            <Card key={est.id}>
-              <CardHeader>
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h2 className="font-semibold text-zinc-900 dark:text-white">{est.name}</h2>
-                    {est.category && <Badge variant="default" className="mt-1">{est.category}</Badge>}
-                  </div>
-                  <span className="text-sm font-semibold text-brand-600 dark:text-brand-400 shrink-0">
-                    {formatCents(est.bills.reduce((s, b) => s + b.totalCents, 0))}
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {est.bills.map((bill) => (
-                  <BillDetail key={bill.id} bill={bill} members={members} eventId={params.eventId} />
-                ))}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Bill detail (inline) ────────────────────────────────────────────────────
-
-type BillProps = {
-  bill: Awaited<ReturnType<typeof getEvent>>["establishments"][number]["bills"][number];
-  members: Array<{ id: string; name?: string | null; image?: string | null }>;
-  eventId: string;
-};
-
-function BillDetail({ bill, members, eventId }: BillProps) {
-  let settlements: ReturnType<typeof calculateBillBalances>["settlements"] = [];
-  try {
-    const result = calculateBillBalances({
-      totalCents: bill.totalCents,
-      subtotalCents: bill.subtotalCents,
-      taxCents: bill.taxCents,
-      tipCents: bill.tipCents,
-      gratuityCents: bill.gratuityCents,
-      lineItems: bill.lineItems.map((li) => ({
-        id: li.id,
-        name: li.name,
-        totalCents: li.totalCents,
-        fractions: li.fractions.map((f) => ({
-          userId: f.userId,
-          fraction: { numerator: f.numerator, denominator: f.denominator },
-        })),
-      })),
-      payments: bill.payments.map((p) => ({ userId: p.userId, amountCents: p.amountCents })),
-    });
-    settlements = result.settlements;
-  } catch { /* skip */ }
-
-  return (
-    <div className="border-t border-zinc-100 dark:border-zinc-800 pt-3 mt-1">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-semibold text-zinc-500">{formatCents(bill.totalCents)}</span>
-        <Link
-          href={`/events/${eventId}/bills/${bill.id}/edit`}
-          className="text-xs text-brand-600 dark:text-brand-400 font-medium px-2 py-0.5 rounded-lg border border-brand-200 dark:border-brand-800 hover:bg-brand-50 dark:hover:bg-brand-950/30 transition-colors"
-        >
-          Edit
-        </Link>
-      </div>
-      <div className="flex flex-col gap-1 mb-3">
-        {bill.lineItems.map((item) => (
-          <div key={item.id} className="flex justify-between text-sm">
-            <span className="text-zinc-700 dark:text-zinc-300">
-              {item.name}{item.quantity > 1 && <span className="text-zinc-400 ml-1">×{item.quantity}</span>}
-            </span>
-            <span className="text-zinc-500">{formatCents(item.totalCents)}</span>
-          </div>
-        ))}
-      </div>
-      <div className="flex gap-3 text-xs text-zinc-400 mb-3">
-        <span>Sub: {formatCents(bill.subtotalCents)}</span>
-        {bill.taxCents > 0 && <span>Tax: {formatCents(bill.taxCents)}</span>}
-        {bill.tipCents > 0 && <span>Svc: {formatCents(bill.tipCents)}</span>}
-        {bill.gratuityCents > 0 && <span>Tip: {formatCents(bill.gratuityCents)}</span>}
-      </div>
-      <div className="flex flex-wrap gap-1.5 mb-3">
-        {bill.payments.map((p) => {
-          const u = members.find((m) => m.id === p.userId);
-          return (
-            <div key={p.userId} className="flex items-center gap-1 rounded-full bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 text-xs text-zinc-600 dark:text-zinc-400">
-              <Avatar name={u?.name} image={u?.image} size="xs" />
-              {u?.name} paid {formatCents(p.amountCents)}
-            </div>
-          );
-        })}
-      </div>
-      {settlements.length > 0 && (
-        <div className="rounded-xl bg-brand-50 dark:bg-brand-950/30 px-3 py-2 flex flex-col gap-1">
-          {settlements.map((s, i) => {
-            const from = members.find((m) => m.id === s.fromUserId);
-            const to = members.find((m) => m.id === s.toUserId);
-            return (
-              <span key={i} className="text-xs text-brand-700 dark:text-brand-300">
-                {from?.name} owes {to?.name} <strong>{formatCents(s.amountCents)}</strong>
-              </span>
-            );
-          })}
-        </div>
-      )}
+      {/* Tabs: Bills · Balances · Settle Up */}
+      <EventTabs
+        eventId={params.eventId}
+        members={members}
+        establishments={event.establishments.map((est) => ({
+          id: est.id,
+          name: est.name,
+          category: est.category,
+          bills: est.bills.map((bill) => ({
+            id: bill.id,
+            totalCents: bill.totalCents,
+            subtotalCents: bill.subtotalCents,
+            taxCents: bill.taxCents,
+            tipCents: bill.tipCents,
+            gratuityCents: bill.gratuityCents,
+            lineItems: bill.lineItems.map((li) => ({
+              id: li.id,
+              name: li.name,
+              quantity: li.quantity,
+              totalCents: li.totalCents,
+              fractions: li.fractions.map((f) => ({
+                userId: f.userId,
+                numerator: f.numerator,
+                denominator: f.denominator,
+              })),
+            })),
+            payments: bill.payments.map((p) => ({
+              userId: p.userId,
+              amountCents: p.amountCents,
+            })),
+          })),
+        }))}
+        balanceSummary={balanceSummary}
+      />
     </div>
   );
 }
