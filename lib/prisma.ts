@@ -7,10 +7,14 @@ ensureDevDb();
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 
+// Cache the client on globalThis in ALL environments so that:
+//  - Dev: the same instance survives Next.js hot-module replacement
+//  - Production: the same instance is reused across requests in a warm Lambda
+//    (avoiding the overhead of re-connecting on every request)
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
   });
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+globalForPrisma.prisma = prisma;
