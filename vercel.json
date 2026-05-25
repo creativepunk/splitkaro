@@ -1,3 +1,3 @@
 {
-  "buildCommand": "prisma generate && next build"
+  "buildCommand": "prisma generate && DATABASE_URL='file:./prisma/dev.db.template' prisma db push --accept-data-loss --skip-generate && next build"
 }

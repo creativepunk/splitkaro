@@ -1,37 +1,48 @@
-import { execSync } from "child_process";
-import { existsSync, writeFileSync } from "fs";
+import { copyFileSync, existsSync, writeFileSync } from "fs";
 import path from "path";
 
 /**
- * Auto-initialises the SQLite schema when running on Vercel in test mode
- * (ENABLE_DEV_LOGIN=true + DATABASE_URL=file:/tmp/...).
+ * Initialises the SQLite DB on Vercel test deployments (ENABLE_DEV_LOGIN=true).
  *
- * Vercel's Lambda /tmp is writable but ephemeral — each cold start gets a
- * fresh container with an empty /tmp. This runs `prisma db push` once per
- * container lifetime so every cold start has the right tables.
+ * Why copy instead of `prisma db push`:
+ *   `prisma db push` needs the Prisma schema engine binary, which is only
+ *   available at build time — not in the serverless function bundle at runtime.
  *
- * No-op in local dev (devs manage their own DB) and in real production
- * (uses PostgreSQL which is already migrated).
+ * How it works:
+ *   The vercel.json buildCommand creates prisma/dev.db.template (an empty but
+ *   fully-migrated SQLite file) during the build step. At runtime we just copy
+ *   that file to /tmp/splitkaro.db. The copy is instant — no binaries needed.
+ *
+ *   A marker file in /tmp prevents re-copying on every request within the same
+ *   Lambda container (containers are reused across requests until they're
+ *   recycled, so data persists for the lifetime of one container).
  */
 const INIT_MARKER = "/tmp/.splitkaro-db-ready";
 
 export function ensureDevDb(): void {
   if (process.env.NODE_ENV !== "production") return;
   if (process.env.ENABLE_DEV_LOGIN !== "true") return;
-  if (existsSync(INIT_MARKER)) return; // already initialised in this container
+  if (existsSync(INIT_MARKER)) return;
+
+  const dbPath = (process.env.DATABASE_URL ?? "file:/tmp/splitkaro.db")
+    .replace(/^file:/, "");
+
+  const template = path.join(process.cwd(), "prisma", "dev.db.template");
+
+  if (!existsSync(template)) {
+    console.error(
+      "[test-deploy] DB template missing at",
+      template,
+      "— was the buildCommand in vercel.json run?"
+    );
+    return;
+  }
 
   try {
-    const prismaBin = path.join(process.cwd(), "node_modules", ".bin", "prisma");
-    execSync(`${prismaBin} db push --accept-data-loss --skip-generate`, {
-      env: { ...process.env },
-      stdio: "pipe",
-      timeout: 30_000,
-      cwd: process.cwd(),
-    });
+    copyFileSync(template, dbPath);
     writeFileSync(INIT_MARKER, new Date().toISOString());
-    console.log("[test-deploy] SQLite schema ready at", process.env.DATABASE_URL);
+    console.log("[test-deploy] SQLite DB copied to", dbPath);
   } catch (err) {
-    console.error("[test-deploy] DB init failed:", (err as Error).message);
-    // Don't throw — queries will fail with helpful errors rather than crashing at import
+    console.error("[test-deploy] Failed to copy DB template:", (err as Error).message);
   }
 }

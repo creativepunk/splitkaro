@@ -25,3 +25,8 @@ next-env.d.ts
 # misc
 .DS_Store
 *.pem
+
+# SQLite files — dev.db is local, dev.db.template is generated during Vercel build
+prisma/dev.db
+prisma/dev.db-journal
+prisma/dev.db.template
