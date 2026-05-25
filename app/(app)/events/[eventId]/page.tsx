@@ -136,7 +136,7 @@ export default async function EventPage({ params }: { params: { eventId: string 
               </CardHeader>
               <CardContent>
                 {est.bills.map((bill) => (
-                  <BillDetail key={bill.id} bill={bill} members={members} />
+                  <BillDetail key={bill.id} bill={bill} members={members} eventId={params.eventId} />
                 ))}
               </CardContent>
             </Card>
@@ -152,9 +152,10 @@ export default async function EventPage({ params }: { params: { eventId: string 
 type BillProps = {
   bill: Awaited<ReturnType<typeof getEvent>>["establishments"][number]["bills"][number];
   members: Array<{ id: string; name?: string | null; image?: string | null }>;
+  eventId: string;
 };
 
-function BillDetail({ bill, members }: BillProps) {
+function BillDetail({ bill, members, eventId }: BillProps) {
   let settlements: ReturnType<typeof calculateBillBalances>["settlements"] = [];
   try {
     const result = calculateBillBalances({
@@ -162,6 +163,7 @@ function BillDetail({ bill, members }: BillProps) {
       subtotalCents: bill.subtotalCents,
       taxCents: bill.taxCents,
       tipCents: bill.tipCents,
+      gratuityCents: bill.gratuityCents,
       lineItems: bill.lineItems.map((li) => ({
         id: li.id,
         name: li.name,
@@ -178,6 +180,15 @@ function BillDetail({ bill, members }: BillProps) {
 
   return (
     <div className="border-t border-zinc-100 dark:border-zinc-800 pt-3 mt-1">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-semibold text-zinc-500">{formatCents(bill.totalCents)}</span>
+        <Link
+          href={`/events/${eventId}/bills/${bill.id}/edit`}
+          className="text-xs text-brand-600 dark:text-brand-400 font-medium px-2 py-0.5 rounded-lg border border-brand-200 dark:border-brand-800 hover:bg-brand-50 dark:hover:bg-brand-950/30 transition-colors"
+        >
+          Edit
+        </Link>
+      </div>
       <div className="flex flex-col gap-1 mb-3">
         {bill.lineItems.map((item) => (
           <div key={item.id} className="flex justify-between text-sm">
@@ -191,7 +202,8 @@ function BillDetail({ bill, members }: BillProps) {
       <div className="flex gap-3 text-xs text-zinc-400 mb-3">
         <span>Sub: {formatCents(bill.subtotalCents)}</span>
         {bill.taxCents > 0 && <span>Tax: {formatCents(bill.taxCents)}</span>}
-        {bill.tipCents > 0 && <span>Tip: {formatCents(bill.tipCents)}</span>}
+        {bill.tipCents > 0 && <span>Svc: {formatCents(bill.tipCents)}</span>}
+        {bill.gratuityCents > 0 && <span>Tip: {formatCents(bill.gratuityCents)}</span>}
       </div>
       <div className="flex flex-wrap gap-1.5 mb-3">
         {bill.payments.map((p) => {

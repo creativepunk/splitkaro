@@ -32,10 +32,11 @@ export interface PaymentInput {
 }
 
 export interface BillInput {
-  totalCents: number;     // grand total of the bill (subtotal + tax + tip)
-  subtotalCents: number;  // items-only subtotal (used to pro-rate tax/tip)
+  totalCents: number;     // grand total of the bill (subtotal + tax + serviceTax + tip)
+  subtotalCents: number;  // items-only subtotal (used to pro-rate overhead)
   taxCents: number;
-  tipCents: number;
+  tipCents: number;        // service tax
+  gratuityCents?: number;  // tip / gratuity (optional for backward compat)
   lineItems: LineItemInput[];
   payments: PaymentInput[];
 }
@@ -69,9 +70,9 @@ export interface Settlement {
 // ---------------------------------------------------------------------------
 
 export function calculateBillBalances(bill: BillInput): BillBalanceResult {
-  const { totalCents, subtotalCents, taxCents, tipCents, lineItems, payments } = bill;
+  const { totalCents, subtotalCents, taxCents, tipCents, gratuityCents = 0, lineItems, payments } = bill;
 
-  const overheadCents = taxCents + tipCents; // to be distributed proportionally
+  const overheadCents = taxCents + tipCents + gratuityCents; // distributed proportionally
 
   // 1. Accumulate each user's raw consumption share of line-item subtotals.
   //    We use exact rational arithmetic until the final rounding step.

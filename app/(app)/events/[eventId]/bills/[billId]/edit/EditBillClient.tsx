@@ -2,15 +2,16 @@
 
 import { useState } from "react";
 import { BillSplitterWizard } from "@/components/bill-wizard/BillSplitterWizard";
-import { createBill } from "@/lib/actions/bills";
-import type { useBillWizard } from "@/components/bill-wizard/useBillWizard";
+import { updateBill } from "@/lib/actions/bills";
+import type { useBillWizard, InitialBillData } from "@/components/bill-wizard/useBillWizard";
 
 interface Props {
-  eventId: string;
+  billId: string;
   participants: Array<{ id: string; name: string; image?: string | null }>;
+  initialData: InitialBillData;
 }
 
-export function BillWizardClient({ eventId, participants }: Props) {
+export function EditBillClient({ billId, participants, initialData }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -21,21 +22,19 @@ export function BillWizardClient({ eventId, participants }: Props) {
     const { lineItems, payments } = toBillInput();
 
     try {
-      await createBill({
-        eventId,
+      await updateBill({
+        billId,
         establishmentName: state.establishmentName || "Unknown",
-        currency: "USD",
         subtotalCents: state.subtotalCents,
         taxCents: state.taxCents,
         tipCents: state.tipCents,
         gratuityCents: state.gratuityCents,
         totalCents: state.totalCents,
-        receiptUrl: state.receiptBlobUrl || undefined,
         lineItems,
         payments,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save bill");
+      setError(err instanceof Error ? err.message : "Failed to update bill");
       setSubmitting(false);
     }
   };
@@ -48,7 +47,7 @@ export function BillWizardClient({ eventId, participants }: Props) {
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
           </svg>
-          <p className="text-sm text-zinc-500">Saving bill…</p>
+          <p className="text-sm text-zinc-500">Updating bill…</p>
         </div>
       </div>
     );
@@ -61,7 +60,11 @@ export function BillWizardClient({ eventId, participants }: Props) {
           {error}
         </div>
       )}
-      <BillSplitterWizard participants={participants} onComplete={handleComplete} />
+      <BillSplitterWizard
+        participants={participants}
+        onComplete={handleComplete}
+        initialData={initialData}
+      />
     </>
   );
 }

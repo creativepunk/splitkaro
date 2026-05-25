@@ -181,7 +181,8 @@ model Bill {
   establishmentId   String
   subtotalCents     Int
   taxCents          Int      @default(0)
-  tipCents          Int      @default(0)
+  tipCents          Int      @default(0)   // service tax
+  gratuityCents     Int      @default(0)   // tip / gratuity
   totalCents        Int
   currency          String   @default("USD")
   receiptUrl        String?

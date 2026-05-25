@@ -37,7 +37,8 @@ const CreateBillSchema = z.object({
   establishmentCategory: z.string().optional(),
   subtotalCents: z.number().int().nonnegative(),
   taxCents: z.number().int().nonnegative(),
-  tipCents: z.number().int().nonnegative(),
+  tipCents: z.number().int().nonnegative(),       // service tax
+  gratuityCents: z.number().int().nonnegative().default(0), // tip
   totalCents: z.number().int().positive(),
   currency: z.string().default("USD"),
   receiptUrl: z.string().url().optional(),
@@ -68,6 +69,7 @@ export async function createBill(input: CreateBillInput) {
     subtotalCents: data.subtotalCents,
     taxCents: data.taxCents,
     tipCents: data.tipCents,
+    gratuityCents: data.gratuityCents,
     lineItems: data.lineItems.map((item) => ({
       id: "dry",
       name: item.name,
@@ -96,6 +98,7 @@ export async function createBill(input: CreateBillInput) {
         subtotalCents: data.subtotalCents,
         taxCents: data.taxCents,
         tipCents: data.tipCents,
+        gratuityCents: data.gratuityCents,
         totalCents: data.totalCents,
         currency: data.currency,
         receiptUrl: data.receiptUrl,
@@ -134,6 +137,113 @@ export async function createBill(input: CreateBillInput) {
 
   revalidatePath(`/events/${data.eventId}`);
   redirect(`/events/${data.eventId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Fetch a bill for editing
+// ---------------------------------------------------------------------------
+
+export async function getBillForEdit(billId: string) {
+  const user = await requireUser();
+
+  const bill = await prisma.bill.findFirst({
+    where: {
+      id: billId,
+      establishment: { event: { participants: { some: { userId: user.id } } } },
+    },
+    include: {
+      establishment: { select: { id: true, name: true, eventId: true } },
+      lineItems: {
+        include: { fractions: { select: { userId: true, numerator: true, denominator: true } } },
+      },
+      payments: { select: { userId: true, amountCents: true } },
+    },
+  });
+
+  if (!bill) redirect("/dashboard");
+  return bill;
+}
+
+// ---------------------------------------------------------------------------
+// Update an existing bill (replace line items + payments atomically)
+// ---------------------------------------------------------------------------
+
+const UpdateBillSchema = z.object({
+  billId: z.string(),
+  establishmentName: z.string().min(1).max(120),
+  subtotalCents: z.number().int().nonnegative(),
+  taxCents: z.number().int().nonnegative(),
+  tipCents: z.number().int().nonnegative(),
+  gratuityCents: z.number().int().nonnegative().default(0),
+  totalCents: z.number().int().positive(),
+  lineItems: z.array(LineItemSchema).min(1),
+  payments: z.array(PaymentSchema).min(1),
+});
+
+export type UpdateBillInput = z.infer<typeof UpdateBillSchema>;
+
+export async function updateBill(input: UpdateBillInput) {
+  const user = await requireUser();
+  const data = UpdateBillSchema.parse(input);
+
+  const bill = await prisma.bill.findFirst({
+    where: {
+      id: data.billId,
+      establishment: { event: { participants: { some: { userId: user.id } } } },
+    },
+    include: { establishment: { select: { eventId: true } } },
+  });
+  if (!bill) throw new Error("Bill not found or access denied");
+
+  const eventId = bill.establishment.eventId;
+
+  await prisma.$transaction(async (tx) => {
+    // Update establishment name
+    await tx.establishment.update({
+      where: { id: bill.establishmentId },
+      data: { name: data.establishmentName },
+    });
+
+    // Delete & recreate line items (fractions cascade-delete automatically)
+    await tx.lineItem.deleteMany({ where: { billId: data.billId } });
+    await tx.payment.deleteMany({ where: { billId: data.billId } });
+
+    await tx.bill.update({
+      where: { id: data.billId },
+      data: {
+        subtotalCents: data.subtotalCents,
+        taxCents: data.taxCents,
+        tipCents: data.tipCents,
+        gratuityCents: data.gratuityCents,
+        totalCents: data.totalCents,
+        lineItems: {
+          create: data.lineItems.map((item) => ({
+            name: item.name,
+            quantity: item.quantity,
+            unitCents: item.unitCents,
+            totalCents: item.totalCents,
+            fractions: {
+              create: item.fractions
+                .filter((f) => f.numerator > 0)
+                .map((f) => ({
+                  userId: f.userId,
+                  numerator: f.numerator,
+                  denominator: f.denominator,
+                })),
+            },
+          })),
+        },
+        payments: {
+          create: data.payments
+            .filter((p) => p.amountCents > 0)
+            .map((p) => ({ userId: p.userId, amountCents: p.amountCents })),
+        },
+      },
+    });
+  });
+
+  revalidatePath(`/events/${eventId}`);
+  redirect(`/events/${eventId}`);
 }
 
 // ---------------------------------------------------------------------------

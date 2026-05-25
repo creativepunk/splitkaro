@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type ChangeEvent } from "react";
-import { useBillWizard, type WizardParticipant, type WizardLineItem } from "./useBillWizard";
+import { useBillWizard, type WizardParticipant, type WizardLineItem, type InitialBillData } from "./useBillWizard";
 import { useOCR } from "@/lib/hooks/useOCR";
 import { formatCents } from "@/lib/utils";
 import { PriceInput } from "@/components/ui/PriceInput";
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 interface BillSplitterWizardProps {
   participants: WizardParticipant[];
   onComplete: (wizard: ReturnType<typeof useBillWizard>) => void;
+  initialData?: InitialBillData;
 }
 
 const STEPS = ["Upload Receipt", "Items & Shares", "Log Payments"] as const;
@@ -20,8 +21,8 @@ const STEPS = ["Upload Receipt", "Items & Shares", "Log Payments"] as const;
 // Root wizard
 // ---------------------------------------------------------------------------
 
-export function BillSplitterWizard({ participants, onComplete }: BillSplitterWizardProps) {
-  const wizard = useBillWizard(participants);
+export function BillSplitterWizard({ participants, onComplete, initialData }: BillSplitterWizardProps) {
+  const wizard = useBillWizard(participants, initialData);
   const ocr = useOCR();
   const { state, next, back, canSubmit } = wizard;
 
@@ -309,7 +310,8 @@ function ItemsAndSharesStep({
         {[
           { label: "Subtotal", value: state.subtotalCents, readOnly: true },
           { label: "Tax", key: "taxCents" as const, value: state.taxCents },
-          { label: "Tip", key: "tipCents" as const, value: state.tipCents },
+          { label: "Service Tax", key: "tipCents" as const, value: state.tipCents },
+          { label: "Tip", key: "gratuityCents" as const, value: state.gratuityCents },
         ].map((row) => (
           <div key={row.label} className="flex items-center justify-between px-4 py-2.5 text-sm">
             <span className="text-zinc-500">{row.label}</span>

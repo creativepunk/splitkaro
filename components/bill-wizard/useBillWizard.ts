@@ -45,7 +45,19 @@ interface WizardState {
   lineItems: WizardLineItem[];
   subtotalCents: number;
   taxCents: number;
+  tipCents: number;       // service tax
+  gratuityCents: number;  // tip / gratuity
+  totalCents: number;
+  payments: WizardPayment[];
+}
+
+export interface InitialBillData {
+  establishmentName: string;
+  lineItems: WizardLineItem[];
+  subtotalCents: number;
+  taxCents: number;
   tipCents: number;
+  gratuityCents: number;
   totalCents: number;
   payments: WizardPayment[];
 }
@@ -69,7 +81,7 @@ function recalcTotals(state: WizardState): WizardState {
   return {
     ...state,
     subtotalCents,
-    totalCents: subtotalCents + state.taxCents + state.tipCents,
+    totalCents: subtotalCents + state.taxCents + state.tipCents + state.gratuityCents,
   };
 }
 
@@ -77,20 +89,28 @@ function recalcTotals(state: WizardState): WizardState {
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useBillWizard(participants: WizardParticipant[]) {
+export function useBillWizard(
+  participants: WizardParticipant[],
+  initialData?: InitialBillData
+) {
   const memberIds = participants.map((p) => p.id);
 
-  const [state, setState] = useState<WizardState>({
-    step: 1,
-    receiptBlobUrl: null,
-    establishmentName: "",
-    lineItems: [],
-    subtotalCents: 0,
-    taxCents: 0,
-    tipCents: 0,
-    totalCents: 0,
-    payments: participants.map((p) => ({ userId: p.id, amountCents: 0 })),
-  });
+  const [state, setState] = useState<WizardState>(
+    initialData
+      ? { step: 2, receiptBlobUrl: null, ...initialData }
+      : {
+          step: 1,
+          receiptBlobUrl: null,
+          establishmentName: "",
+          lineItems: [],
+          subtotalCents: 0,
+          taxCents: 0,
+          tipCents: 0,
+          gratuityCents: 0,
+          totalCents: 0,
+          payments: participants.map((p) => ({ userId: p.id, amountCents: 0 })),
+        }
+  );
 
   // ── Navigation ──────────────────────────────────────────────────────────
   const next = useCallback(
@@ -123,6 +143,7 @@ export function useBillWizard(participants: WizardParticipant[]) {
           subtotalCents,
           taxCents: receipt.tax_cents,
           tipCents: receipt.tip_cents,
+          gratuityCents: 0,
           totalCents: receipt.total_cents,
           step: 2,
         };
@@ -193,10 +214,10 @@ export function useBillWizard(participants: WizardParticipant[]) {
   }, []);
 
   const updateTaxTip = useCallback(
-    (patch: { taxCents?: number; tipCents?: number }) => {
+    (patch: { taxCents?: number; tipCents?: number; gratuityCents?: number }) => {
       setState((s) => {
         const next = { ...s, ...patch };
-        next.totalCents = next.subtotalCents + next.taxCents + next.tipCents;
+        next.totalCents = next.subtotalCents + next.taxCents + next.tipCents + next.gratuityCents;
         return next;
       });
     },
@@ -273,6 +294,7 @@ export function useBillWizard(participants: WizardParticipant[]) {
         subtotalCents: state.subtotalCents,
         taxCents: state.taxCents,
         tipCents: state.tipCents,
+        gratuityCents: state.gratuityCents,
         lineItems: state.lineItems.map((item) => {
           const totalParts = item.participants.reduce((s, p) => s + p.parts, 0);
           return {
