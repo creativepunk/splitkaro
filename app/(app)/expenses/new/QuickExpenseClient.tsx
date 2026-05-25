@@ -63,6 +63,7 @@ export function QuickExpenseClient({
       await createDirectExpense({
         description: description.trim(),
         totalCents,
+        currency: "INR",
         splits,
         // No groupId or eventId
       });
