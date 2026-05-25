@@ -87,7 +87,12 @@ export async function POST(req: NextRequest) {
 
       try {
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        // gemini-1.5-flash is free (15 req/min) but only on the v1 (GA) endpoint,
+        // not v1beta which is the SDK default.
+        const model = genAI.getGenerativeModel(
+          { model: "gemini-1.5-flash" },
+          { apiVersion: "v1" }
+        );
 
         send("status", { message: "Extracting line items…" });
 
