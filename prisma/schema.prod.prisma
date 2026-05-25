@@ -1,0 +1,256 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// NEXT-AUTH  (required by @auth/prisma-adapter)
+// ---------------------------------------------------------------------------
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------------------------------------------------------------------------
+// IDENTITY
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // NextAuth relations
+  accounts Account[]
+  sessions Session[]
+
+  // App relations
+  groupMemberships   GroupMember[]
+  payments           Payment[]
+  itemFractions      ItemFraction[]
+  directExpenses     DirectExpense[]
+  directExpSplits    DirectExpenseSplit[]
+  createdEvents      Event[]
+
+  @@index([email])
+}
+
+// ---------------------------------------------------------------------------
+// GROUPS
+// ---------------------------------------------------------------------------
+
+model Group {
+  id        String   @id @default(cuid())
+  name      String
+  emoji     String   @default("👥")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members        GroupMember[]
+  events         Event[]
+  directExpenses DirectExpense[]
+}
+
+model GroupMember {
+  id       String    @id @default(cuid())
+  groupId  String
+  userId   String
+  role     GroupRole @default(MEMBER)
+  joinedAt DateTime  @default(now())
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([groupId])
+  @@index([userId])
+}
+
+enum GroupRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+// ---------------------------------------------------------------------------
+// EVENT HIERARCHY  Event → Establishment → Bill → LineItem → ItemFraction
+//                                               ↘ Payment
+// ---------------------------------------------------------------------------
+
+model Event {
+  id          String    @id @default(cuid())
+  groupId     String
+  createdById String
+  name        String
+  description String?
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  group          Group           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdBy      User            @relation(fields: [createdById], references: [id])
+  establishments Establishment[]
+
+  @@index([groupId])
+  @@index([createdById])
+}
+
+model Establishment {
+  id        String   @id @default(cuid())
+  eventId   String
+  name      String
+  address   String?
+  category  String?
+  createdAt DateTime @default(now())
+
+  event Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  bills Bill[]
+
+  @@index([eventId])
+}
+
+model Bill {
+  id               String   @id @default(cuid())
+  establishmentId  String
+  subtotalCents    Int
+  taxCents         Int      @default(0)
+  tipCents         Int      @default(0)
+  totalCents       Int
+  currency         String   @default("USD")
+  receiptUrl       String?
+  receiptStorageKey String?
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  establishment Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  lineItems     LineItem[]
+  payments      Payment[]
+
+  @@index([establishmentId])
+}
+
+model LineItem {
+  id         String @id @default(cuid())
+  billId     String
+  name       String
+  quantity   Int    @default(1)
+  unitCents  Int
+  totalCents Int
+
+  bill      Bill           @relation(fields: [billId], references: [id], onDelete: Cascade)
+  fractions ItemFraction[]
+
+  @@index([billId])
+}
+
+model ItemFraction {
+  id          String @id @default(cuid())
+  lineItemId  String
+  userId      String
+  numerator   Int
+  denominator Int
+
+  lineItem LineItem @relation(fields: [lineItemId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([lineItemId, userId])
+  @@index([lineItemId])
+  @@index([userId])
+}
+
+model Payment {
+  id          String  @id @default(cuid())
+  billId      String
+  userId      String
+  amountCents Int
+  method      String?
+  note        String?
+
+  bill Bill @relation(fields: [billId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([billId])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// DIRECT EXPENSE
+// ---------------------------------------------------------------------------
+
+model DirectExpense {
+  id          String   @id @default(cuid())
+  groupId     String
+  paidById    String
+  description String
+  totalCents  Int
+  currency    String   @default("USD")
+  createdAt   DateTime @default(now())
+
+  group  Group                @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  paidBy User                 @relation(fields: [paidById], references: [id])
+  splits DirectExpenseSplit[]
+
+  @@index([groupId])
+  @@index([paidById])
+}
+
+model DirectExpenseSplit {
+  id              String @id @default(cuid())
+  directExpenseId String
+  userId          String
+  numerator       Int
+  denominator     Int
+
+  directExpense DirectExpense @relation(fields: [directExpenseId], references: [id], onDelete: Cascade)
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([directExpenseId, userId])
+  @@index([directExpenseId])
+  @@index([userId])
+}

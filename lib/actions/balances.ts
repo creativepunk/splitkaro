@@ -1,0 +1,249 @@
+"use server";
+
+import { prisma } from "@/lib/prisma";
+import { calculateBillBalances, type Settlement } from "@/lib/ledger";
+import { requireUser } from "@/lib/server-auth";
+
+export interface PersonBalance {
+  userId: string;
+  name: string | null;
+  image: string | null;
+  isContact: boolean;
+  /** positive = they owe you; negative = you owe them */
+  netCents: number;
+}
+
+export interface GlobalBalanceSummary {
+  balances: PersonBalance[];
+  settlements: Settlement[];
+}
+
+/**
+ * Compute net balances between the current user and all their contacts
+ * across every event bill and every direct expense they share.
+ */
+export async function getGlobalBalances(): Promise<GlobalBalanceSummary> {
+  const me = await requireUser();
+
+  // Load all contacts
+  const contacts = await prisma.user.findMany({
+    where: { isContact: true, contactOwnerId: me.id },
+    select: { id: true, name: true, image: true, isContact: true },
+  });
+
+  // netCents[userId] = how much they owe me (positive) or I owe them (negative)
+  const net = new Map<string, number>();
+  contacts.forEach((c) => net.set(c.id, 0));
+
+  // ── Event bills ──────────────────────────────────────────────────────────
+  const events = await prisma.event.findMany({
+    where: { participants: { some: { userId: me.id } } },
+    include: {
+      establishments: {
+        include: {
+          bills: {
+            include: {
+              lineItems: { include: { fractions: true } },
+              payments: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  for (const event of events) {
+    for (const est of event.establishments) {
+      for (const bill of est.bills) {
+        try {
+          const result = calculateBillBalances({
+            totalCents: bill.totalCents,
+            subtotalCents: bill.subtotalCents,
+            taxCents: bill.taxCents,
+            tipCents: bill.tipCents,
+            lineItems: bill.lineItems.map((li) => ({
+              id: li.id,
+              name: li.name,
+              totalCents: li.totalCents,
+              fractions: li.fractions.map((f) => ({
+                userId: f.userId,
+                fraction: { numerator: f.numerator, denominator: f.denominator },
+              })),
+            })),
+            payments: bill.payments.map((p) => ({
+              userId: p.userId,
+              amountCents: p.amountCents,
+            })),
+          });
+
+          for (const ub of result.userBalances) {
+            if (ub.userId === me.id) continue;
+            // From MY perspective: if they have net > 0 they overpaid (others owe them).
+            // I need the opposite: their net relative to me.
+            // My net in this bill vs theirs sums to 0, so:
+            // if I am net positive in the bill, they owe me; adjust per person.
+            const myBalance = result.userBalances.find((u) => u.userId === me.id);
+            if (myBalance && net.has(ub.userId)) {
+              // Use settlement: if the settlement is from them to me, they owe me.
+              // Easier: just track from settlements
+            }
+          }
+
+          // Use settlements — cleaner
+          for (const s of result.settlements) {
+            if (s.toUserId === me.id && net.has(s.fromUserId)) {
+              net.set(s.fromUserId, (net.get(s.fromUserId) ?? 0) + s.amountCents);
+            } else if (s.fromUserId === me.id && net.has(s.toUserId)) {
+              net.set(s.toUserId, (net.get(s.toUserId) ?? 0) - s.amountCents);
+            }
+          }
+        } catch {
+          // skip malformed bills
+        }
+      }
+    }
+  }
+
+  // ── Direct expenses ──────────────────────────────────────────────────────
+  const directExpenses = await prisma.directExpense.findMany({
+    where: {
+      splits: { some: { userId: me.id } },
+    },
+    include: {
+      splits: true,
+    },
+  });
+
+  for (const de of directExpenses) {
+    const mySplit = de.splits.find((s) => s.userId === me.id);
+    if (!mySplit) continue;
+
+    const myOwedCents = Math.round((de.totalCents * mySplit.numerator) / mySplit.denominator);
+
+    if (de.paidById === me.id) {
+      // I paid — everyone else owes me their share
+      for (const split of de.splits) {
+        if (split.userId === me.id) continue;
+        if (!net.has(split.userId)) continue;
+        const theirShare = Math.round((de.totalCents * split.numerator) / split.denominator);
+        net.set(split.userId, (net.get(split.userId) ?? 0) + theirShare);
+      }
+    } else {
+      // Someone else paid — I owe them my share
+      if (net.has(de.paidById)) {
+        net.set(de.paidById, (net.get(de.paidById) ?? 0) - myOwedCents);
+      }
+    }
+  }
+
+  const balances: PersonBalance[] = contacts.map((c) => ({
+    userId: c.id,
+    name: c.name,
+    image: c.image,
+    isContact: c.isContact,
+    netCents: net.get(c.id) ?? 0,
+  }));
+
+  // Minimal settlements
+  const debtors = balances
+    .filter((b) => b.netCents < 0)
+    .map((b) => ({ userId: b.userId, amount: -b.netCents }))
+    .sort((a, b) => b.amount - a.amount);
+
+  const creditors = balances
+    .filter((b) => b.netCents > 0)
+    .map((b) => ({ userId: b.userId, amount: b.netCents }))
+    .sort((a, b) => b.amount - a.amount);
+
+  const settlements: Settlement[] = [];
+  let d = 0, c = 0;
+  while (d < debtors.length && c < creditors.length) {
+    const transfer = Math.min(debtors[d].amount, creditors[c].amount);
+    if (transfer > 0) settlements.push({ fromUserId: debtors[d].userId, toUserId: creditors[c].userId, amountCents: transfer });
+    debtors[d].amount -= transfer;
+    creditors[c].amount -= transfer;
+    if (debtors[d].amount === 0) d++;
+    if (creditors[c].amount === 0) c++;
+  }
+
+  return { balances, settlements };
+}
+
+// ── Per-event balance (for the event detail page) ──────────────────────────
+
+export interface EventBalanceSummary {
+  balances: Array<{ userId: string; name: string | null; image: string | null; netCents: number }>;
+  settlements: Settlement[];
+}
+
+export async function getEventBalances(eventId: string): Promise<EventBalanceSummary> {
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    include: {
+      participants: { include: { user: { select: { id: true, name: true, image: true } } } },
+      establishments: {
+        include: {
+          bills: {
+            include: {
+              lineItems: { include: { fractions: true } },
+              payments: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!event) return { balances: [], settlements: [] };
+
+  const netByUser = new Map<string, number>();
+  event.participants.forEach((p) => netByUser.set(p.userId, 0));
+
+  for (const est of event.establishments) {
+    for (const bill of est.bills) {
+      try {
+        const result = calculateBillBalances({
+          totalCents: bill.totalCents,
+          subtotalCents: bill.subtotalCents,
+          taxCents: bill.taxCents,
+          tipCents: bill.tipCents,
+          lineItems: bill.lineItems.map((li) => ({
+            id: li.id,
+            name: li.name,
+            totalCents: li.totalCents,
+            fractions: li.fractions.map((f) => ({
+              userId: f.userId,
+              fraction: { numerator: f.numerator, denominator: f.denominator },
+            })),
+          })),
+          payments: bill.payments.map((p) => ({ userId: p.userId, amountCents: p.amountCents })),
+        });
+        for (const ub of result.userBalances) {
+          netByUser.set(ub.userId, (netByUser.get(ub.userId) ?? 0) + ub.netCents);
+        }
+      } catch { /* skip */ }
+    }
+  }
+
+  const balances = event.participants.map((p) => ({
+    userId: p.userId,
+    name: p.user.name,
+    image: p.user.image,
+    netCents: netByUser.get(p.userId) ?? 0,
+  }));
+
+  const debtors = balances.filter((b) => b.netCents < 0).map((b) => ({ userId: b.userId, amount: -b.netCents })).sort((a, b) => b.amount - a.amount);
+  const creditors = balances.filter((b) => b.netCents > 0).map((b) => ({ userId: b.userId, amount: b.netCents })).sort((a, b) => b.amount - a.amount);
+
+  const settlements: Settlement[] = [];
+  let di = 0, ci = 0;
+  while (di < debtors.length && ci < creditors.length) {
+    const t = Math.min(debtors[di].amount, creditors[ci].amount);
+    if (t > 0) settlements.push({ fromUserId: debtors[di].userId, toUserId: creditors[ci].userId, amountCents: t });
+    debtors[di].amount -= t; creditors[ci].amount -= t;
+    if (debtors[di].amount === 0) di++;
+    if (creditors[ci].amount === 0) ci++;
+  }
+
+  return { balances, settlements };
+}
