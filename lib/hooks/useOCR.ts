@@ -32,7 +32,13 @@ export function useOCR() {
     }
 
     if (!response.ok || !response.body) {
-      setStatus({ state: "error", message: "Server error. Please try again." });
+      // Try to extract a meaningful error message from the response body
+      let msg = "Server error. Please try again.";
+      try {
+        const body = await response.clone().json();
+        if (typeof body?.error === "string") msg = body.error;
+      } catch { /* ignore */ }
+      setStatus({ state: "error", message: msg });
       return;
     }
 
