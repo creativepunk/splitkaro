@@ -6,7 +6,9 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 
-const IS_DEV = process.env.NODE_ENV === "development";
+const IS_DEV =
+  process.env.NODE_ENV === "development" ||
+  process.env.NEXT_PUBLIC_ENABLE_DEV_LOGIN === "true";
 
 export function SignInForm() {
   const { status } = useSession();
