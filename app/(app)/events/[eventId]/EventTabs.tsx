@@ -137,76 +137,56 @@ function BillsTab({
           description="Add a bill for a restaurant, activity, or any expense from this event."
         />
       ) : (
-        <div className="flex flex-col gap-4">
-          {establishments.map((est) => (
-            <div key={est.id} className="flex flex-col gap-1.5">
-              {/* Establishment label */}
-              <div className="flex items-center gap-2 px-1">
-                <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-                  {est.name}
-                </span>
-                {est.category && <Badge variant="default">{est.category}</Badge>}
-                <span className="ml-auto text-xs font-semibold text-brand-600 dark:text-brand-400">
-                  {formatCents(est.bills.reduce((s, b) => s + b.totalCents, 0))}
-                </span>
-              </div>
-
-              {/* Bill cards */}
-              {est.bills.map((bill) => {
-                const isExpanded = expandedBills.has(bill.id);
-                return (
+        <div className="flex flex-col gap-3">
+          {establishments.flatMap((est) =>
+            est.bills.map((bill) => {
+              const isExpanded = expandedBills.has(bill.id);
+              return (
                   <div
                     key={bill.id}
                     className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden"
                   >
-                    {/* Collapsed row — always visible, tap to expand */}
+                    {/* Collapsed header — always visible, tap to expand */}
                     <button
                       onClick={() => toggleBill(bill.id)}
-                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
+                      className="w-full px-4 pt-4 pb-3 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
                     >
-                      <div className="flex-1 min-w-0">
-                        {/* Total + item count */}
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-zinc-900 dark:text-white">
-                            {formatCents(bill.totalCents)}
-                          </span>
-                          <span className="text-xs text-zinc-400">
-                            {bill.lineItems.length} item{bill.lineItems.length !== 1 ? "s" : ""}
-                          </span>
+                      {/* Name + total */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-snug">
+                            {est.name}
+                          </h3>
+                          {est.category && (
+                            <Badge variant="default" className="mt-1">{est.category}</Badge>
+                          )}
                         </div>
-                        {/* Item name preview */}
-                        {bill.lineItems.length > 0 && (
-                          <p className="text-xs text-zinc-500 mt-0.5 truncate">
-                            {bill.lineItems
-                              .slice(0, 3)
-                              .map((li) => li.name || "Item")
-                              .join(" · ")}
-                            {bill.lineItems.length > 3 && " · …"}
-                          </p>
-                        )}
-                        {/* Who paid — inline chips */}
-                        {bill.payments.length > 0 && (
-                          <div className="flex flex-wrap items-center gap-1 mt-1.5">
-                            {bill.payments.map((p) => {
-                              const u = members.find((m) => m.id === p.userId);
-                              return (
-                                <span
-                                  key={p.userId}
-                                  className="text-xs text-zinc-500 bg-zinc-100 dark:bg-zinc-800 rounded-full px-2 py-0.5"
-                                >
-                                  {u?.name?.split(" ")[0] ?? "?"} paid {formatCents(p.amountCents)}
-                                </span>
-                              );
-                            })}
-                          </div>
-                        )}
+                        <span className="text-lg font-bold text-brand-600 dark:text-brand-400 shrink-0 tabular-nums">
+                          {formatCents(bill.totalCents)}
+                        </span>
                       </div>
-                      <ChevronIcon
-                        className={cn(
-                          "shrink-0 text-zinc-400 transition-transform duration-200",
-                          isExpanded && "rotate-180"
-                        )}
-                      />
+
+                      {/* Item count */}
+                      <p className="text-sm text-zinc-500 mt-1">
+                        {bill.lineItems.length} item{bill.lineItems.length !== 1 ? "s" : ""}
+                      </p>
+
+                      {/* Payment chips */}
+                      {bill.payments.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-2 mt-2.5">
+                          {bill.payments.map((p) => {
+                            const u = members.find((m) => m.id === p.userId);
+                            return (
+                              <span
+                                key={p.userId}
+                                className="text-sm text-zinc-500 bg-zinc-100 dark:bg-zinc-800 rounded-full px-3 py-1"
+                              >
+                                {u?.name?.split(" ")[0] ?? "?"} paid {formatCents(p.amountCents)}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
                     </button>
 
                     {/* Expanded content */}
@@ -274,9 +254,8 @@ function BillsTab({
                     )}
                   </div>
                 );
-              })}
-            </div>
-          ))}
+            })
+          )}
         </div>
       )}
     </div>
