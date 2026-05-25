@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "db:generate": "prisma generate",
+    "db:generate:prod": "prisma generate --schema=prisma/schema.prod.prisma",
     "db:migrate": "prisma migrate dev",
     "db:push": "DATABASE_URL='file:./prisma/dev.db' prisma db push",
     "db:studio": "DATABASE_URL='file:./prisma/dev.db' prisma studio",
