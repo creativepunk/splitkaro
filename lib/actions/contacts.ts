@@ -66,6 +66,45 @@ export async function getMyParticipants() {
 }
 
 // ---------------------------------------------------------------------------
+// Rename contact
+// ---------------------------------------------------------------------------
+
+export async function renameContact(contactId: string, name: string) {
+  const user = await requireUser();
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Name is required");
+
+  await prisma.user.updateMany({
+    where: { id: contactId, contactOwnerId: user.id, isContact: true },
+    data: { name: trimmed },
+  });
+
+  revalidatePath(`/people/${contactId}`);
+  revalidatePath("/people");
+  revalidatePath("/dashboard");
+}
+
+// ---------------------------------------------------------------------------
+// Delete contact
+// ---------------------------------------------------------------------------
+
+export async function deleteContact(contactId: string) {
+  const user = await requireUser();
+
+  // Only allow deleting contacts you own
+  const contact = await prisma.user.findFirst({
+    where: { id: contactId, contactOwnerId: user.id, isContact: true },
+  });
+  if (!contact) throw new Error("Contact not found");
+
+  await prisma.user.delete({ where: { id: contactId } });
+
+  revalidatePath("/people");
+  revalidatePath("/dashboard");
+  redirect("/people");
+}
+
+// ---------------------------------------------------------------------------
 // Get single contact profile
 // ---------------------------------------------------------------------------
 

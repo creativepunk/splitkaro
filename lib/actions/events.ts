@@ -53,6 +53,37 @@ export async function createEvent(formData: FormData) {
 }
 
 // ---------------------------------------------------------------------------
+// Update event name / description
+// ---------------------------------------------------------------------------
+
+const UpdateEventSchema = z.object({
+  name: z.string().min(1).max(120).trim(),
+  description: z.string().max(500).optional(),
+});
+
+export async function updateEvent(
+  eventId: string,
+  data: { name: string; description?: string }
+) {
+  const user = await requireUser();
+  const parsed = UpdateEventSchema.parse(data);
+
+  const event = await prisma.event.findFirst({
+    where: { id: eventId, createdById: user.id },
+    select: { id: true },
+  });
+  if (!event) throw new Error("Event not found or access denied");
+
+  await prisma.event.update({
+    where: { id: eventId },
+    data: { name: parsed.name, description: parsed.description ?? null },
+  });
+
+  revalidatePath(`/events/${eventId}`);
+  revalidatePath("/dashboard");
+}
+
+// ---------------------------------------------------------------------------
 // Get all events where the current user is a participant
 // ---------------------------------------------------------------------------
 

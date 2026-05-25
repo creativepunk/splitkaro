@@ -2,6 +2,7 @@ import { Metadata } from "next";
 import Link from "next/link";
 import { getEvent } from "@/lib/actions/events";
 import { getEventBalances } from "@/lib/actions/balances";
+import { requireUser } from "@/lib/server-auth";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -10,11 +11,13 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { BalanceSheet } from "@/components/BalanceSheet";
 import { formatCents } from "@/lib/utils";
 import { calculateBillBalances } from "@/lib/ledger";
+import { EditEventHeader } from "./EditEventHeader";
 
 export const metadata: Metadata = { title: "Event" };
 
 export default async function EventPage({ params }: { params: { eventId: string } }) {
-  const [event, balanceSummary] = await Promise.all([
+  const [me, event, balanceSummary] = await Promise.all([
+    requireUser(),
     getEvent(params.eventId),
     getEventBalances(params.eventId),
   ]);
@@ -33,28 +36,32 @@ export default async function EventPage({ params }: { params: { eventId: string 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-6">
       {/* Header */}
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <Link href="/dashboard" className="text-xs text-zinc-500 hover:text-brand-600 dark:hover:text-brand-400 mb-1 block">
-            ← Home
-          </Link>
-          <h1 className="text-xl font-bold text-zinc-900 dark:text-white">✈️ {event.name}</h1>
-          {event.description && <p className="text-sm text-zinc-500 mt-0.5">{event.description}</p>}
-          <div className="flex flex-wrap gap-1.5 mt-2">
-            {members.map((m) => (
-              <div key={m.id} className="flex items-center gap-1 rounded-full bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5">
-                <Avatar name={m.name} image={m.image} size="xs" />
-                <span className="text-xs text-zinc-600 dark:text-zinc-300">{m.name}</span>
-              </div>
-            ))}
-          </div>
+      <div>
+        <Link href="/dashboard" className="text-xs text-zinc-500 hover:text-brand-600 dark:hover:text-brand-400 mb-2 block">
+          ← Home
+        </Link>
+        <div className="flex items-start justify-between gap-3">
+          <EditEventHeader
+            eventId={event.id}
+            name={event.name}
+            description={event.description}
+            isOwner={event.createdById === me.id}
+          />
+          {eventTotal > 0 && (
+            <div className="text-right shrink-0">
+              <p className="text-xs text-zinc-500">Total</p>
+              <p className="text-lg font-bold text-zinc-900 dark:text-white">{formatCents(eventTotal)}</p>
+            </div>
+          )}
         </div>
-        {eventTotal > 0 && (
-          <div className="text-right shrink-0">
-            <p className="text-xs text-zinc-500">Total</p>
-            <p className="text-lg font-bold text-zinc-900 dark:text-white">{formatCents(eventTotal)}</p>
-          </div>
-        )}
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {members.map((m) => (
+            <div key={m.id} className="flex items-center gap-1 rounded-full bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5">
+              <Avatar name={m.name} image={m.image} size="xs" />
+              <span className="text-xs text-zinc-600 dark:text-zinc-300">{m.name}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Add bill */}

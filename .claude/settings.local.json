@@ -26,7 +26,12 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/icon.svg)",
       "Bash(find /Users/pushpal/Splitkaro -newer /Users/pushpal/Splitkaro/package.json -not -path */.next/* -not -path */node_modules/* -not -path */.git/* -not -path */.claude/* -type f)",
       "Bash(find /Users/pushpal/Splitkaro -newer /tmp/ref_now -not -path */.next/* -not -path */node_modules/* -not -path */.git/* -not -path */.claude/* -type f)",
-      "Bash(curl -sv http://localhost:3000/api/auth/clear-stale-session)"
+      "Bash(curl -sv http://localhost:3000/api/auth/clear-stale-session)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('scripts',{}\\), indent=2\\)\\)\")",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(git commit *)"
     ]
   }
 }

@@ -182,3 +182,51 @@ export async function createDirectExpense(input: z.infer<typeof CreateDirectExpe
     redirect("/dashboard");
   }
 }
+
+// ---------------------------------------------------------------------------
+// Update direct expense (description + amount only; splits unchanged)
+// ---------------------------------------------------------------------------
+
+export async function updateDirectExpense(
+  expenseId: string,
+  data: { description: string; totalCents: number }
+) {
+  const user = await requireUser();
+
+  const expense = await prisma.directExpense.findFirst({
+    where: { id: expenseId, paidById: user.id },
+    select: { id: true },
+  });
+  if (!expense) throw new Error("Expense not found or access denied");
+
+  const desc = data.description.trim();
+  if (!desc) throw new Error("Description is required");
+  if (data.totalCents <= 0) throw new Error("Amount must be positive");
+
+  await prisma.directExpense.update({
+    where: { id: expenseId },
+    data: { description: desc, totalCents: data.totalCents },
+  });
+
+  revalidatePath("/dashboard");
+  revalidatePath("/people");
+}
+
+// ---------------------------------------------------------------------------
+// Delete direct expense
+// ---------------------------------------------------------------------------
+
+export async function deleteDirectExpense(expenseId: string) {
+  const user = await requireUser();
+
+  const expense = await prisma.directExpense.findFirst({
+    where: { id: expenseId, paidById: user.id },
+    select: { id: true },
+  });
+  if (!expense) throw new Error("Expense not found or access denied");
+
+  await prisma.directExpense.delete({ where: { id: expenseId } });
+
+  revalidatePath("/dashboard");
+  revalidatePath("/people");
+}
