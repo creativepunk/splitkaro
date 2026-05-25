@@ -1,7 +1,7 @@
 import { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getContactProfile, type BillBreakdown, type ContactOtherDebt } from "@/lib/actions/contacts";
+import { getContactProfile, type BillBreakdown } from "@/lib/actions/contacts";
 import { requireUser } from "@/lib/server-auth";
 import { Avatar } from "@/components/ui/Avatar";
 import { formatCents } from "@/lib/utils";
@@ -55,6 +55,31 @@ export default async function PersonProfilePage({ params }: { params: { id: stri
   const hasOthers  = othersDebts.length > 0;
   const hasAnything = hasTheyOwe || hasIOwe || hasOthers;
 
+  // Group othersDebts by direction + other person name so multiple events
+  // from the same pair are shown as a summed row with event breakdown below.
+  type GroupedOtherDebt = {
+    contactOwes: boolean;
+    otherPersonName: string | null;
+    totalAmountCents: number;
+    events: { eventId: string; eventName: string; amountCents: number }[];
+  };
+  const othersMap = new Map<string, GroupedOtherDebt>();
+  for (const d of othersDebts) {
+    const key = `${d.contactOwes ? 1 : 0}:${d.otherPersonName ?? ""}`;
+    if (!othersMap.has(key)) {
+      othersMap.set(key, {
+        contactOwes: d.contactOwes,
+        otherPersonName: d.otherPersonName,
+        totalAmountCents: 0,
+        events: [],
+      });
+    }
+    const g = othersMap.get(key)!;
+    g.totalAmountCents += d.amountCents;
+    g.events.push({ eventId: d.eventId, eventName: d.eventName, amountCents: d.amountCents });
+  }
+  const groupedOthers = [...othersMap.values()];
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-5">
 
@@ -78,7 +103,11 @@ export default async function PersonProfilePage({ params }: { params: { id: stri
                 </span>
               )}
               {theyOweMeTotal > 0 && iOweThemTotal > 0 && (
-                <span className="text-xs text-zinc-400">
+                <span className={`text-xs font-semibold ${
+                  netCents > 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-red-500 dark:text-red-400"
+                }`}>
                   net {netCents > 0 ? "+" : "−"}{formatCents(Math.abs(netCents))}
                 </span>
               )}
@@ -148,12 +177,12 @@ export default async function PersonProfilePage({ params }: { params: { id: stri
               {firstName}&apos;s other debts
             </p>
             <p className="text-xs text-zinc-500 mt-0.5">
-              Settlements with other people in shared events
+              Settlements with others in shared events
             </p>
           </div>
           <div className="divide-y divide-zinc-100 dark:divide-zinc-800 bg-white dark:bg-zinc-950">
-            {othersDebts.map((debt, i) => (
-              <OtherDebtRow key={i} debt={debt} contactFirstName={firstName} />
+            {groupedOthers.map((group, i) => (
+              <GroupedOtherDebtRow key={i} group={group} contactFirstName={firstName} />
             ))}
           </div>
         </div>
@@ -279,38 +308,78 @@ function BillRow({ bill, contactName }: { bill: BillBreakdown; contactName: stri
 }
 
 // ---------------------------------------------------------------------------
-// Other-person debt row
+// Grouped other-person debt row (sum header + per-event breakdown)
 // ---------------------------------------------------------------------------
 
-function OtherDebtRow({ debt, contactFirstName }: { debt: ContactOtherDebt; contactFirstName: string }) {
-  const otherFirst = debt.otherPersonName?.split(" ")[0] ?? "Someone";
+type GroupedOtherDebt = {
+  contactOwes: boolean;
+  otherPersonName: string | null;
+  totalAmountCents: number;
+  events: { eventId: string; eventName: string; amountCents: number }[];
+};
+
+function GroupedOtherDebtRow({
+  group,
+  contactFirstName,
+}: {
+  group: GroupedOtherDebt;
+  contactFirstName: string;
+}) {
+  const otherFirst = group.otherPersonName?.split(" ")[0] ?? "Someone";
+  const amountColor = group.contactOwes
+    ? "text-red-500 dark:text-red-400"
+    : "text-emerald-600 dark:text-emerald-400";
+
   return (
-    <Link
-      href={`/events/${debt.eventId}`}
-      className="flex items-center gap-3 px-4 py-3.5 hover:bg-zinc-50 dark:hover:bg-zinc-900/40 transition-colors"
-    >
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
-          {debt.contactOwes ? (
-            <><span className="font-semibold">{contactFirstName}</span>
-              <span className="text-zinc-400 mx-1.5">owes</span>
-              <span className="font-semibold">{otherFirst}</span></>
-          ) : (
-            <><span className="font-semibold">{otherFirst}</span>
-              <span className="text-zinc-400 mx-1.5">owes</span>
-              <span className="font-semibold">{contactFirstName}</span></>
+    <div>
+      {/* Summary row */}
+      <div className="flex items-center gap-3 px-4 py-3.5">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+            {group.contactOwes ? (
+              <>
+                <span className="font-semibold">{contactFirstName}</span>
+                <span className="text-zinc-400 mx-1.5">owes</span>
+                <span className="font-semibold">{otherFirst}</span>
+              </>
+            ) : (
+              <>
+                <span className="font-semibold">{otherFirst}</span>
+                <span className="text-zinc-400 mx-1.5">owes</span>
+                <span className="font-semibold">{contactFirstName}</span>
+              </>
+            )}
+          </p>
+          {group.events.length > 1 && (
+            <p className="text-xs text-zinc-400 mt-0.5">
+              across {group.events.length} events
+            </p>
           )}
-        </p>
-        <p className="text-xs text-zinc-500 mt-0.5">{debt.eventName}</p>
+        </div>
+        <span className={`text-sm font-bold tabular-nums shrink-0 ${amountColor}`}>
+          {formatCents(group.totalAmountCents)}
+        </span>
       </div>
-      <span className={`text-sm font-bold tabular-nums shrink-0 ${
-        debt.contactOwes
-          ? "text-red-500 dark:text-red-400"
-          : "text-emerald-600 dark:text-emerald-400"
-      }`}>
-        {formatCents(debt.amountCents)}
-      </span>
-    </Link>
+
+      {/* Per-event breakdown — always visible */}
+      <div className="pb-2 px-4 flex flex-col gap-0.5">
+        {group.events.map((ev) => (
+          <Link
+            key={ev.eventId}
+            href={`/events/${ev.eventId}`}
+            className="flex items-center gap-2 pl-4 pr-2 py-1.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors group"
+          >
+            <span className="text-zinc-300 dark:text-zinc-600 text-xs shrink-0">└</span>
+            <span className="flex-1 text-xs text-zinc-500 group-hover:text-zinc-700 dark:group-hover:text-zinc-300 truncate">
+              {ev.eventName}
+            </span>
+            <span className={`text-xs font-semibold tabular-nums shrink-0 ${amountColor}`}>
+              {formatCents(ev.amountCents)}
+            </span>
+          </Link>
+        ))}
+      </div>
+    </div>
   );
 }
 
