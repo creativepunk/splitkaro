@@ -27,6 +27,15 @@ export interface BillBreakdown {
   theirPaidCents: number;
 }
 
+export interface ContactOtherDebt {
+  eventId: string;
+  eventName: string;
+  /** true  = contact owes otherPerson; false = otherPerson owes contact */
+  contactOwes: boolean;
+  otherPersonName: string | null;
+  amountCents: number;
+}
+
 // ---------------------------------------------------------------------------
 // Add contact
 // ---------------------------------------------------------------------------
@@ -167,6 +176,12 @@ export async function getContactProfile(contactId: string) {
       select: {
         id: true,
         name: true,
+        participants: {
+          select: {
+            userId: true,
+            user: { select: { id: true, name: true } },
+          },
+        },
         establishments: {
           select: {
             name: true,
@@ -264,7 +279,81 @@ export async function getContactProfile(contactId: string) {
     }
   }
 
+  // ── Compute per-event debts between the contact and everyone else ──────
+  // (settlements that don't involve me at all, or where I'm not one of the parties)
+  const othersDebts: ContactOtherDebt[] = [];
+
+  for (const event of sharedEvents) {
+    // Aggregate per-user netCents across all bills in this event
+    const netByUser = new Map<string, number>();
+    for (const p of event.participants) netByUser.set(p.userId, 0);
+
+    for (const est of event.establishments) {
+      for (const bill of est.bills) {
+        try {
+          const result = calculateBillBalances({
+            totalCents: bill.totalCents,
+            subtotalCents: bill.subtotalCents,
+            taxCents: bill.taxCents,
+            tipCents: bill.tipCents,
+            gratuityCents: bill.gratuityCents,
+            lineItems: bill.lineItems.map((li) => ({
+              id: li.id,
+              name: li.name,
+              totalCents: li.totalCents,
+              fractions: li.fractions.map((f) => ({
+                userId: f.userId,
+                fraction: { numerator: f.numerator, denominator: f.denominator },
+              })),
+            })),
+            payments: bill.payments,
+          });
+          for (const ub of result.userBalances) {
+            netByUser.set(ub.userId, (netByUser.get(ub.userId) ?? 0) + ub.netCents);
+          }
+        } catch { /* skip */ }
+      }
+    }
+
+    // Greedy minimal settlements across all participants in this event
+    const debtors = [...netByUser.entries()]
+      .filter(([, n]) => n < 0)
+      .map(([uid, n]) => ({ userId: uid, amount: -n }))
+      .sort((a, b) => b.amount - a.amount);
+    const creditors = [...netByUser.entries()]
+      .filter(([, n]) => n > 0)
+      .map(([uid, n]) => ({ userId: uid, amount: n }))
+      .sort((a, b) => b.amount - a.amount);
+
+    let d = 0, c = 0;
+    while (d < debtors.length && c < creditors.length) {
+      const transfer = Math.min(debtors[d].amount, creditors[c].amount);
+      if (transfer > 0) {
+        const fromId = debtors[d].userId;
+        const toId = creditors[c].userId;
+        const involvesContact = fromId === contactId || toId === contactId;
+        const involvesMe = fromId === user.id || toId === user.id;
+        // Show: contact ↔ other people (whether or not I'm involved)
+        if (involvesContact && !involvesMe) {
+          const otherId = fromId === contactId ? toId : fromId;
+          const otherParticipant = event.participants.find((p) => p.userId === otherId);
+          othersDebts.push({
+            eventId: event.id,
+            eventName: event.name,
+            contactOwes: fromId === contactId,
+            otherPersonName: otherParticipant?.user.name ?? null,
+            amountCents: transfer,
+          });
+        }
+      }
+      debtors[d].amount -= transfer;
+      creditors[c].amount -= transfer;
+      if (debtors[d].amount === 0) d++;
+      if (creditors[c].amount === 0) c++;
+    }
+  }
+
   const netCents = balances.find((b) => b.userId === contactId)?.netCents ?? 0;
 
-  return { contact, netCents, sharedExpenses, billBreakdowns };
+  return { contact, netCents, sharedExpenses, billBreakdowns, othersDebts };
 }
