@@ -256,6 +256,7 @@ const CreateDirectExpenseSchema = z.object({
   description: z.string().min(1).max(200),
   totalCents: z.number().int().positive(),
   currency: z.string().default("USD"),
+  paidById: z.string().cuid().optional(),
   splits: z.array(FractionSchema).min(1),
 });
 
@@ -267,7 +268,7 @@ export async function createDirectExpense(input: z.infer<typeof CreateDirectExpe
     data: {
       groupId: data.groupId,
       eventId: data.eventId,
-      paidById: user.id,
+      paidById: data.paidById ?? user.id,
       description: data.description,
       totalCents: data.totalCents,
       currency: data.currency,
