@@ -4,7 +4,9 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import type { NextAuthOptions } from "next-auth";
 import { prisma } from "@/lib/prisma";
 
-const isDev = process.env.NODE_ENV === "development";
+const isDev =
+  process.env.NODE_ENV === "development" ||
+  process.env.ENABLE_DEV_LOGIN === "true";
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as NextAuthOptions["adapter"],
