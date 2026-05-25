@@ -256,6 +256,7 @@ model DirectExpense {
   createdAt   DateTime @default(now())
 
   paidByUser User                 @relation(fields: [paidById], references: [id])
+  group      Group?               @relation(fields: [groupId], references: [id])
   splits     DirectExpenseSplit[]
 
   @@index([groupId])
