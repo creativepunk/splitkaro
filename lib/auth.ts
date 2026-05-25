@@ -9,6 +9,12 @@ const isDev =
   process.env.ENABLE_DEV_LOGIN === "true";
 
 export const authOptions: NextAuthOptions = {
+  // Fall back to a built-in secret for test deployments (ENABLE_DEV_LOGIN=true).
+  // Real production MUST set NEXTAUTH_SECRET via environment variable.
+  secret:
+    process.env.NEXTAUTH_SECRET ??
+    (isDev ? "splitkaro-dev-secret-not-for-production" : undefined),
+
   adapter: PrismaAdapter(prisma) as NextAuthOptions["adapter"],
   providers: [
     // ── Google OAuth (production) ──────────────────────────────────────────
