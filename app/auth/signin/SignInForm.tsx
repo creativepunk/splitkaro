@@ -6,9 +6,12 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 
-const IS_DEV =
+const SHOW_DEV_LOGIN =
   process.env.NODE_ENV === "development" ||
   process.env.NEXT_PUBLIC_ENABLE_DEV_LOGIN === "true";
+
+const GOOGLE_CONFIGURED =
+  process.env.NEXT_PUBLIC_GOOGLE_CONFIGURED === "true";
 
 export function SignInForm() {
   const { status } = useSession();
@@ -60,11 +63,11 @@ export function SignInForm() {
         </div>
       )}
 
-      {/* ── Dev bypass (only in development) ─────────────────────────────── */}
-      {IS_DEV && (
+      {/* ── Dev login (email + name) ─────────────────────────────────────── */}
+      {SHOW_DEV_LOGIN && (
         <div className="w-full rounded-2xl border-2 border-dashed border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/20 p-4">
           <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-3 uppercase tracking-wide">
-            Dev login — local only
+            Quick login
           </p>
           <form onSubmit={handleDevLogin} className="flex flex-col gap-3">
             <Input
@@ -85,15 +88,19 @@ export function SignInForm() {
               Sign in as {devName || "…"}
             </Button>
           </form>
-          <p className="text-xs text-amber-600 dark:text-amber-500 mt-2">
-            Creates/reuses an account in the local SQLite DB. Not available in production.
-          </p>
         </div>
       )}
 
-      {/* ── Google OAuth (production) ─────────────────────────────────────── */}
-      {!IS_DEV && (
+      {/* ── Google OAuth ─────────────────────────────────────────────────── */}
+      {GOOGLE_CONFIGURED && (
         <>
+          {SHOW_DEV_LOGIN && (
+            <div className="flex items-center gap-3 w-full">
+              <div className="flex-1 h-px bg-zinc-200 dark:bg-zinc-700" />
+              <span className="text-xs text-zinc-400">or</span>
+              <div className="flex-1 h-px bg-zinc-200 dark:bg-zinc-700" />
+            </div>
+          )}
           <Button
             variant="secondary"
             size="lg"
@@ -110,18 +117,11 @@ export function SignInForm() {
         </>
       )}
 
-      {/* Show Google button in dev too, if real credentials are configured */}
-      {IS_DEV && process.env.NEXT_PUBLIC_GOOGLE_CONFIGURED === "true" && (
-        <Button
-          variant="secondary"
-          size="sm"
-          className="w-full"
-          loading={googleLoading}
-          onClick={handleGoogle}
-        >
-          <GoogleIcon />
-          Or sign in with Google
-        </Button>
+      {/* Neither method available */}
+      {!SHOW_DEV_LOGIN && !GOOGLE_CONFIGURED && (
+        <p className="text-sm text-zinc-400 text-center">
+          No sign-in methods are configured.
+        </p>
       )}
     </div>
   );

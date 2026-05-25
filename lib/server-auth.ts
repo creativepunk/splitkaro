@@ -15,9 +15,10 @@ export async function requireUser() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) redirect("/auth/signin");
 
-  // On test deploys there is no real database — trust the JWT directly.
+  // No-DB mode: ENABLE_DEV_LOGIN=true but DATABASE_URL not set — trust JWT directly.
   if (
     process.env.ENABLE_DEV_LOGIN === "true" &&
+    !process.env.DATABASE_URL &&
     process.env.NODE_ENV === "production"
   ) {
     return {

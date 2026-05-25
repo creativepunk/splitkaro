@@ -6,13 +6,16 @@ import { prisma } from "@/lib/prisma";
 
 const isDev = process.env.NODE_ENV === "development";
 
-// Test deployment on Vercel: ENABLE_DEV_LOGIN=true but no real DB
+// "No DB" mode: ENABLE_DEV_LOGIN=true but DATABASE_URL not set.
+// Falls back to synthetic in-memory users so the app is at least usable.
 const isTestDeploy =
   process.env.ENABLE_DEV_LOGIN === "true" &&
+  !process.env.DATABASE_URL &&
   process.env.NODE_ENV === "production";
 
-// Either local dev or Vercel test deploy gets the dev login form
-const useDevLogin = isDev || isTestDeploy;
+// Show the email/name dev-login form whenever in local dev
+// OR when ENABLE_DEV_LOGIN is explicitly set (even with a real DB).
+const useDevLogin = isDev || process.env.ENABLE_DEV_LOGIN === "true";
 
 export const authOptions: NextAuthOptions = {
   // Fall back to a built-in secret for test deployments.
