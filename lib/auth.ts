@@ -4,18 +4,28 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import type { NextAuthOptions } from "next-auth";
 import { prisma } from "@/lib/prisma";
 
-const isDev =
-  process.env.NODE_ENV === "development" ||
-  process.env.ENABLE_DEV_LOGIN === "true";
+const isDev = process.env.NODE_ENV === "development";
+
+// Test deployment on Vercel: ENABLE_DEV_LOGIN=true but no real DB
+const isTestDeploy =
+  process.env.ENABLE_DEV_LOGIN === "true" &&
+  process.env.NODE_ENV === "production";
+
+// Either local dev or Vercel test deploy gets the dev login form
+const useDevLogin = isDev || isTestDeploy;
 
 export const authOptions: NextAuthOptions = {
-  // Fall back to a built-in secret for test deployments (ENABLE_DEV_LOGIN=true).
+  // Fall back to a built-in secret for test deployments.
   // Real production MUST set NEXTAUTH_SECRET via environment variable.
   secret:
     process.env.NEXTAUTH_SECRET ??
-    (isDev ? "splitkaro-dev-secret-not-for-production" : undefined),
+    (useDevLogin ? "splitkaro-dev-secret-not-for-production" : undefined),
 
-  adapter: PrismaAdapter(prisma) as NextAuthOptions["adapter"],
+  // Only attach PrismaAdapter when we have a real database.
+  // Credentials + JWT strategy doesn't use the adapter for sessions anyway,
+  // but removing it avoids accidental DB calls on test deploys.
+  ...(isTestDeploy ? {} : { adapter: PrismaAdapter(prisma) as NextAuthOptions["adapter"] }),
+
   providers: [
     // ── Google OAuth (production) ──────────────────────────────────────────
     ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== "placeholder"
@@ -27,10 +37,8 @@ export const authOptions: NextAuthOptions = {
         ]
       : []),
 
-    // ── Dev bypass (local only) ────────────────────────────────────────────
-    // Lets any email/name log in instantly without Google OAuth.
-    // Automatically excluded in production by the session strategy check below.
-    ...(isDev
+    // ── Dev / test-deploy login ────────────────────────────────────────────
+    ...(useDevLogin
       ? [
           CredentialsProvider({
             id: "dev-login",
@@ -44,7 +52,15 @@ export const authOptions: NextAuthOptions = {
               const email = credentials.email.trim().toLowerCase();
               const name = credentials.name?.trim() || email.split("@")[0];
 
-              // Upsert: find or create the user in the local SQLite DB
+              if (isTestDeploy) {
+                // No database on test deploys — return a synthetic user.
+                // The ID is deterministic so the same email always gets the
+                // same ID across requests (important for JWT consistency).
+                const id = "test-" + Buffer.from(email).toString("base64url").slice(0, 16);
+                return { id, email, name };
+              }
+
+              // Local dev: upsert into the local SQLite DB
               const user = await prisma.user.upsert({
                 where: { email },
                 update: { name },
@@ -57,16 +73,18 @@ export const authOptions: NextAuthOptions = {
       : []),
   ],
 
-  // Credentials provider requires JWT strategy (can't use DB sessions with credentials)
-  session: { strategy: isDev ? "jwt" : "database" },
+  // Credentials provider requires JWT strategy
+  session: { strategy: useDevLogin ? "jwt" : "database" },
 
   callbacks: {
-    // For JWT strategy (dev): embed user ID directly in the token
     async jwt({ token, user }) {
-      if (user) token.id = user.id;
+      if (user) {
+        token.id = user.id;
+        token.name = user.name;
+        token.email = user.email;
+      }
       return token;
     },
-    // Expose user.id on the session object in both strategies
     async session({ session, token, user }) {
       if (session.user) {
         session.user.id = (token?.id as string | undefined) ?? user?.id;

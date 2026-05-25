@@ -15,6 +15,19 @@ export async function requireUser() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) redirect("/auth/signin");
 
+  // On test deploys there is no real database — trust the JWT directly.
+  if (
+    process.env.ENABLE_DEV_LOGIN === "true" &&
+    process.env.NODE_ENV === "production"
+  ) {
+    return {
+      id: session.user.id,
+      name: session.user.name ?? null,
+      email: session.user.email ?? null,
+      image: session.user.image ?? null,
+    };
+  }
+
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
     select: { id: true, name: true, email: true, image: true },

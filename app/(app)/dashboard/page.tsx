@@ -18,12 +18,13 @@ export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/auth/signin");
 
-  const [groups, events, { balances }, contacts] = await Promise.all([
-    getMyGroups(),
-    getMyEvents(),
-    getGlobalBalances(),
-    getMyContacts(),
+  const [groups, events, globalBalances, contacts] = await Promise.all([
+    getMyGroups().catch(() => []),
+    getMyEvents().catch(() => []),
+    getGlobalBalances().catch(() => ({ balances: [], settlements: [] })),
+    getMyContacts().catch(() => []),
   ]);
+  const { balances } = globalBalances;
 
   const balanceMap = new Map(balances.map((b) => [b.userId, b.netCents]));
 
