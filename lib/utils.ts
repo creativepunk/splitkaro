@@ -27,3 +27,11 @@ export function initials(name: string | null | undefined): string {
     .toUpperCase()
     .slice(0, 2);
 }
+
+export function formatDate(date: Date | string | number): string {
+  return new Intl.DateTimeFormat("en-IN", {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  }).format(new Date(date));
+}
