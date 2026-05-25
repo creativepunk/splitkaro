@@ -22,6 +22,11 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: "10mb",
     },
+    // Ensure the pre-built SQLite template is bundled into every
+    // serverless function so ensureDevDb() can copy it at cold-start.
+    outputFileTracingIncludes: {
+      "**": ["./prisma/dev.db.template"],
+    },
   },
 };
 
