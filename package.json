@@ -15,7 +15,6 @@
     "db:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.54.0",
     "@auth/prisma-adapter": "^2.7.4",
     "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^5.22.0",
@@ -41,5 +40,9 @@
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.0",
     "typescript": "^5.7.3"
+  },
+  "optionalDependencies": {
+    "@next/swc-linux-x64-gnu": "14.2.35",
+    "@next/swc-linux-x64-musl": "14.2.35"
   }
 }
