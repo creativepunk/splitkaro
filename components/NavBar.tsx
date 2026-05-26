@@ -7,10 +7,10 @@ import { Avatar } from "@/components/ui/Avatar";
 import { cn } from "@/lib/utils";
 
 const NAV = [
-  { href: "/dashboard", label: "Home", icon: "🏠" },
-  { href: "/people", label: "People", icon: "👤" },
-  { href: "/events", label: "Events", icon: "✈️" },
-  { href: "/groups", label: "Groups", icon: "👥" },
+  { href: "/dashboard", label: "Home", icon: "🏠", match: ["/dashboard"] },
+  { href: "/people", label: "People", icon: "👤", match: ["/people"] },
+  { href: "/organize", label: "Events", icon: "✈️", match: ["/organize", "/events", "/groups"] },
+  { href: "/activity", label: "Activity", icon: "⚡", match: ["/activity", "/expenses"] },
 ];
 
 interface NavBarProps {
@@ -22,8 +22,10 @@ export function NavBar({ initialUser }: NavBarProps) {
   const { data: session } = useSession();
   const user = session?.user ?? initialUser;
 
-  const isActive = (href: string) =>
-    href === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(href);
+  const isActive = (item: (typeof NAV)[number]) =>
+    item.match.some((prefix) =>
+      prefix === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(prefix)
+    );
 
   return (
     <>
@@ -39,7 +41,7 @@ export function NavBar({ initialUser }: NavBarProps) {
               href={item.href}
               className={cn(
                 "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
-                isActive(item.href)
+                isActive(item)
                   ? "bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300"
                   : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800"
               )}
@@ -67,7 +69,7 @@ export function NavBar({ initialUser }: NavBarProps) {
             href={item.href}
             className={cn(
               "flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-xs font-medium transition-colors",
-              isActive(item.href)
+              isActive(item)
                 ? "text-brand-600 dark:text-brand-400"
                 : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
             )}

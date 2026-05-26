@@ -324,6 +324,32 @@ export async function updateDirectExpense(
 }
 
 // ---------------------------------------------------------------------------
+// Get all standalone direct expenses for the current user
+// (no groupId, no eventId — i.e. quick expenses)
+// ---------------------------------------------------------------------------
+
+export async function getMyDirectExpenses() {
+  const user = await requireUser();
+  return prisma.directExpense.findMany({
+    where: {
+      groupId: null,
+      eventId: null,
+      OR: [
+        { paidById: user.id },
+        { splits: { some: { userId: user.id } } },
+      ],
+    },
+    include: {
+      paidByUser: { select: { id: true, name: true, image: true } },
+      splits: {
+        include: { user: { select: { id: true, name: true } } },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Delete direct expense
 // ---------------------------------------------------------------------------
 
