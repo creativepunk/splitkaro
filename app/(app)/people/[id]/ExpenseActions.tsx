@@ -22,6 +22,8 @@ interface Props {
   amountSign: string;
   /** When true: no card border/bg — renders as a flat row inside a parent container */
   flat?: boolean;
+  /** When true: show delete button even if the current user isn't the payer */
+  canDelete?: boolean;
 }
 
 export function ExpenseRow({
@@ -33,6 +35,7 @@ export function ExpenseRow({
   amountColor,
   amountSign,
   flat = false,
+  canDelete = false,
 }: Props) {
   const [mode, setMode] = useState<"view" | "edit" | "confirmDelete">("view");
   const [desc, setDesc] = useState(expense.description);
@@ -40,6 +43,7 @@ export function ExpenseRow({
   const [isPending, startTransition] = useTransition();
 
   const isMine = expense.paidById === currentUserId;
+  const showDelete = isMine || canDelete;
 
   const handleSave = () => {
     const cents = Math.round(parseFloat(amountStr) * 100);
@@ -144,27 +148,31 @@ export function ExpenseRow({
           </p>
         </div>
       )}
-      {/* Only the payer can edit/delete */}
-      {isMine && (
+      {/* Edit: payer only. Delete: payer or any participant */}
+      {(isMine || showDelete) && (
         <div className="flex gap-1 shrink-0 ml-1">
-          <button
-            onClick={() => setMode("edit")}
-            title="Edit"
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/30 transition"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-            </svg>
-          </button>
-          <button
-            onClick={() => setMode("confirmDelete")}
-            title="Delete"
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-          </button>
+          {isMine && (
+            <button
+              onClick={() => setMode("edit")}
+              title="Edit"
+              className="p-1.5 rounded-lg text-zinc-400 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/30 transition"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+            </button>
+          )}
+          {showDelete && (
+            <button
+              onClick={() => setMode("confirmDelete")}
+              title="Delete"
+              className="p-1.5 rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          )}
         </div>
       )}
     </div>

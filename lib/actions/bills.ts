@@ -330,8 +330,15 @@ export async function updateDirectExpense(
 export async function deleteDirectExpense(expenseId: string) {
   const user = await requireUser();
 
+  // Allow deletion if the current user is the payer OR a split participant
   const expense = await prisma.directExpense.findFirst({
-    where: { id: expenseId, paidById: user.id },
+    where: {
+      id: expenseId,
+      OR: [
+        { paidById: user.id },
+        { splits: { some: { userId: user.id } } },
+      ],
+    },
     select: { id: true },
   });
   if (!expense) throw new Error("Expense not found or access denied");

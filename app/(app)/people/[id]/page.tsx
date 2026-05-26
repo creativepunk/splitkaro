@@ -138,7 +138,7 @@ export default async function PersonProfilePage({ params }: { params: { id: stri
             const net = sp ? Math.round(exp.totalCents * (sp.numerator / sp.denominator)) : 0;
             return (
               <ExpenseRow
-                key={exp.id} flat
+                key={exp.id} flat canDelete
                 expense={exp} currentUserId={me.id} contactName={contact.name!}
                 netAmount={net} amountLabel="you lent"
                 amountColor="text-emerald-600 dark:text-emerald-400" amountSign="+"
@@ -159,7 +159,7 @@ export default async function PersonProfilePage({ params }: { params: { id: stri
             const net = sp ? Math.round(exp.totalCents * (sp.numerator / sp.denominator)) : 0;
             return (
               <ExpenseRow
-                key={exp.id} flat
+                key={exp.id} flat canDelete
                 expense={exp} currentUserId={me.id} contactName={contact.name!}
                 netAmount={net} amountLabel="you borrowed"
                 amountColor="text-red-500 dark:text-red-400" amountSign="−"
