@@ -30,11 +30,18 @@ export interface GlobalBalanceSummary {
 
 /**
  * Compute net balances between the current user and all their contacts
- * across events (per-event simplification) and direct expenses.
+ * across events (per-bill bilateral extraction) and direct expenses.
  *
- * For events: accumulate bill netCents per participant per event, then run
- * one greedy settlement per event — identical to getEventBalances. Only the
- * settlements that involve the current user are captured.
+ * For events: for each bill, extract only the settlements that are directly
+ * between the current user and a contact. This gives the true bilateral debt
+ * ("you paid for Gautham's Kadamba breakfast → Gautham owes you ₹87") and
+ * matches exactly what the contact profile page body sections show.
+ *
+ * This is intentionally different from the event Settle Up tab, which runs a
+ * single greedy over all participants to minimise total transactions. That
+ * greedy can route Pushpal's full event debt through the biggest creditor
+ * (e.g. Gautham) even when some of that debt came from bills Shivdeep paid —
+ * producing confusing "you owe Gautham ₹4,823" when the bilateral is ₹1,667.
  */
 export async function getGlobalBalances(): Promise<GlobalBalanceSummary> {
   const me = await requireUser();
@@ -49,11 +56,10 @@ export async function getGlobalBalances(): Promise<GlobalBalanceSummary> {
   const net = new Map<string, number>();
   contacts.forEach((c) => net.set(c.id, 0));
 
-  // ── Event bills (per-event simplification) ──────────────────────────────
+  // ── Event bills (per-bill bilateral) ────────────────────────────────────
   const events = await prisma.event.findMany({
     where: { participants: { some: { userId: me.id } } },
     include: {
-      participants: { select: { userId: true } },
       establishments: {
         include: {
           bills: {
@@ -68,10 +74,6 @@ export async function getGlobalBalances(): Promise<GlobalBalanceSummary> {
   });
 
   for (const event of events) {
-    // Accumulate net per user across ALL bills in this event first
-    const netByUser = new Map<string, number>();
-    for (const p of event.participants) netByUser.set(p.userId, 0);
-
     for (const est of event.establishments) {
       for (const bill of est.bills) {
         try {
@@ -95,41 +97,18 @@ export async function getGlobalBalances(): Promise<GlobalBalanceSummary> {
               amountCents: p.amountCents,
             })),
           });
-          for (const ub of result.userBalances) {
-            netByUser.set(ub.userId, (netByUser.get(ub.userId) ?? 0) + ub.netCents);
+          // Only capture settlements that directly involve me ↔ a contact
+          for (const s of result.settlements) {
+            if (s.toUserId === me.id && net.has(s.fromUserId)) {
+              net.set(s.fromUserId, (net.get(s.fromUserId) ?? 0) + s.amountCents);
+            } else if (s.fromUserId === me.id && net.has(s.toUserId)) {
+              net.set(s.toUserId, (net.get(s.toUserId) ?? 0) - s.amountCents);
+            }
           }
         } catch {
           // skip malformed bills
         }
       }
-    }
-
-    // One greedy settlement pass over all event participants
-    const evDebtors = [...netByUser.entries()]
-      .filter(([, n]) => n < 0)
-      .map(([uid, n]) => ({ userId: uid, amount: -n }))
-      .sort((a, b) => b.amount - a.amount);
-    const evCreditors = [...netByUser.entries()]
-      .filter(([, n]) => n > 0)
-      .map(([uid, n]) => ({ userId: uid, amount: n }))
-      .sort((a, b) => b.amount - a.amount);
-
-    let d = 0, c = 0;
-    while (d < evDebtors.length && c < evCreditors.length) {
-      const transfer = Math.min(evDebtors[d].amount, evCreditors[c].amount);
-      if (transfer > 0) {
-        const fromId = evDebtors[d].userId;
-        const toId   = evCreditors[c].userId;
-        if (toId === me.id && net.has(fromId)) {
-          net.set(fromId, (net.get(fromId) ?? 0) + transfer);
-        } else if (fromId === me.id && net.has(toId)) {
-          net.set(toId, (net.get(toId) ?? 0) - transfer);
-        }
-      }
-      evDebtors[d].amount -= transfer;
-      evCreditors[c].amount -= transfer;
-      if (evDebtors[d].amount === 0) d++;
-      if (evCreditors[c].amount === 0) c++;
     }
   }
 
