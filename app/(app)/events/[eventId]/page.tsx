@@ -36,6 +36,7 @@ export default async function EventPage({ params }: { params: { eventId: string 
       <div className="flex-1 px-4 pb-8">
         <EventTabs
           eventId={params.eventId}
+          currentUserId={me.id}
           members={members}
           establishments={event.establishments.map((est) => ({
             id: est.id,
@@ -43,6 +44,7 @@ export default async function EventPage({ params }: { params: { eventId: string 
             category: est.category,
             bills: est.bills.map((bill) => ({
               id: bill.id,
+              createdAt: bill.createdAt.toISOString(),
               totalCents: bill.totalCents,
               subtotalCents: bill.subtotalCents,
               taxCents: bill.taxCents,
