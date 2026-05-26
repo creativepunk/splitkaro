@@ -71,6 +71,7 @@ export async function getGlobalBalances(): Promise<GlobalBalanceSummary> {
             subtotalCents: bill.subtotalCents,
             taxCents: bill.taxCents,
             tipCents: bill.tipCents,
+            gratuityCents: bill.gratuityCents,
             lineItems: bill.lineItems.map((li) => ({
               id: li.id,
               name: li.name,
@@ -85,19 +86,6 @@ export async function getGlobalBalances(): Promise<GlobalBalanceSummary> {
               amountCents: p.amountCents,
             })),
           });
-
-          for (const ub of result.userBalances) {
-            if (ub.userId === me.id) continue;
-            // From MY perspective: if they have net > 0 they overpaid (others owe them).
-            // I need the opposite: their net relative to me.
-            // My net in this bill vs theirs sums to 0, so:
-            // if I am net positive in the bill, they owe me; adjust per person.
-            const myBalance = result.userBalances.find((u) => u.userId === me.id);
-            if (myBalance && net.has(ub.userId)) {
-              // Use settlement: if the settlement is from them to me, they owe me.
-              // Easier: just track from settlements
-            }
-          }
 
           // Use settlements — cleaner
           for (const s of result.settlements) {
@@ -115,23 +103,20 @@ export async function getGlobalBalances(): Promise<GlobalBalanceSummary> {
   }
 
   // ── Direct expenses ──────────────────────────────────────────────────────
+  // Fetch expenses where I paid OR I'm a split participant
   const directExpenses = await prisma.directExpense.findMany({
     where: {
-      splits: { some: { userId: me.id } },
+      OR: [
+        { paidById: me.id },
+        { splits: { some: { userId: me.id } } },
+      ],
     },
-    include: {
-      splits: true,
-    },
+    include: { splits: true },
   });
 
   for (const de of directExpenses) {
-    const mySplit = de.splits.find((s) => s.userId === me.id);
-    if (!mySplit) continue;
-
-    const myOwedCents = Math.round((de.totalCents * mySplit.numerator) / mySplit.denominator);
-
     if (de.paidById === me.id) {
-      // I paid — everyone else owes me their share
+      // I paid — every other split participant owes me their share
       for (const split of de.splits) {
         if (split.userId === me.id) continue;
         if (!net.has(split.userId)) continue;
@@ -140,6 +125,9 @@ export async function getGlobalBalances(): Promise<GlobalBalanceSummary> {
       }
     } else {
       // Someone else paid — I owe them my share
+      const mySplit = de.splits.find((s) => s.userId === me.id);
+      if (!mySplit) continue;
+      const myOwedCents = Math.round((de.totalCents * mySplit.numerator) / mySplit.denominator);
       if (net.has(de.paidById)) {
         net.set(de.paidById, (net.get(de.paidById) ?? 0) - myOwedCents);
       }
@@ -240,6 +228,7 @@ export async function getEventBalances(eventId: string): Promise<EventBalanceSum
           subtotalCents: bill.subtotalCents,
           taxCents: bill.taxCents,
           tipCents: bill.tipCents,
+          gratuityCents: bill.gratuityCents,
           lineItems: bill.lineItems.map((li) => ({
             id: li.id,
             name: li.name,
