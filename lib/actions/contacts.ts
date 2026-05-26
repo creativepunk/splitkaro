@@ -11,20 +11,11 @@ import { calculateBillBalances } from "@/lib/ledger";
 // Exported types
 // ---------------------------------------------------------------------------
 
-export interface BillBreakdown {
-  billId: string;
+export interface EventSettlement {
   eventId: string;
   eventName: string;
-  establishmentName: string;
-  createdAt: Date;
-  billTotalCents: number;
-  itemCount: number;
-  /** positive = they owe me from this bill, negative = I owe them */
+  /** positive = contact owes me from this event; negative = I owe contact */
   netCents: number;
-  myOwedCents: number;    // my consumption share of this bill
-  theirOwedCents: number; // their consumption share
-  myPaidCents: number;    // how much I physically paid
-  theirPaidCents: number;
 }
 
 export interface ContactOtherDebt {
@@ -151,11 +142,7 @@ export async function getContactProfile(contactId: string) {
 
   if (!contact) redirect("/people");
 
-  // Dynamically import to avoid circular deps
-  const { getGlobalBalances } = await import("./balances");
-
-  const [{ balances }, sharedExpenses, sharedEvents] = await Promise.all([
-    getGlobalBalances(),
+  const [sharedExpenses, sharedEvents] = await Promise.all([
     prisma.directExpense.findMany({
       where: {
         OR: [
@@ -217,78 +204,14 @@ export async function getContactProfile(contactId: string) {
     }),
   ]);
 
-  // ── Compute per-bill breakdown ──────────────────────────────────────────
-  const billBreakdowns: BillBreakdown[] = [];
-
-  for (const event of sharedEvents) {
-    for (const est of event.establishments) {
-      for (const bill of est.bills) {
-        const myInvolved =
-          bill.lineItems.some((li) => li.fractions.some((f) => f.userId === user.id)) ||
-          bill.payments.some((p) => p.userId === user.id);
-        const theirInvolved =
-          bill.lineItems.some((li) => li.fractions.some((f) => f.userId === contactId)) ||
-          bill.payments.some((p) => p.userId === contactId);
-
-        if (!myInvolved || !theirInvolved) continue;
-
-        try {
-          const result = calculateBillBalances({
-            totalCents: bill.totalCents,
-            subtotalCents: bill.subtotalCents,
-            taxCents: bill.taxCents,
-            tipCents: bill.tipCents,
-            gratuityCents: bill.gratuityCents,
-            lineItems: bill.lineItems.map((li) => ({
-              id: li.id,
-              name: li.name,
-              totalCents: li.totalCents,
-              fractions: li.fractions.map((f) => ({
-                userId: f.userId,
-                fraction: { numerator: f.numerator, denominator: f.denominator },
-              })),
-            })),
-            payments: bill.payments,
-          });
-
-          // Net between me and this contact specifically
-          let netCents = 0;
-          for (const s of result.settlements) {
-            if (s.toUserId === user.id && s.fromUserId === contactId) {
-              netCents += s.amountCents; // they owe me
-            } else if (s.fromUserId === user.id && s.toUserId === contactId) {
-              netCents -= s.amountCents; // I owe them
-            }
-          }
-
-          const myBal = result.userBalances.find((b) => b.userId === user.id);
-          const theirBal = result.userBalances.find((b) => b.userId === contactId);
-
-          billBreakdowns.push({
-            billId: bill.id,
-            eventId: event.id,
-            eventName: event.name,
-            establishmentName: est.name,
-            createdAt: bill.createdAt,
-            billTotalCents: bill.totalCents,
-            itemCount: bill.lineItems.length,
-            netCents,
-            myOwedCents: myBal?.owedCents ?? 0,
-            theirOwedCents: theirBal?.owedCents ?? 0,
-            myPaidCents: bill.payments.find((p) => p.userId === user.id)?.amountCents ?? 0,
-            theirPaidCents: bill.payments.find((p) => p.userId === contactId)?.amountCents ?? 0,
-          });
-        } catch { /* skip malformed bills */ }
-      }
-    }
-  }
-
-  // ── Compute per-event debts between the contact and everyone else ──────
-  // (settlements that don't involve me at all, or where I'm not one of the parties)
+  // ── One greedy pass per shared event ────────────────────────────────────
+  // Produces both the me↔contact simplified settlement (eventSettlements)
+  // and the contact↔third-party settlements (othersDebts) from the same run.
+  const eventSettlements: EventSettlement[] = [];
   const othersDebts: ContactOtherDebt[] = [];
 
   for (const event of sharedEvents) {
-    // Aggregate per-user netCents across all bills in this event
+    // Accumulate net per participant across all bills in this event
     const netByUser = new Map<string, number>();
     for (const p of event.participants) netByUser.set(p.userId, 0);
 
@@ -315,11 +238,11 @@ export async function getContactProfile(contactId: string) {
           for (const ub of result.userBalances) {
             netByUser.set(ub.userId, (netByUser.get(ub.userId) ?? 0) + ub.netCents);
           }
-        } catch { /* skip */ }
+        } catch { /* skip malformed bills */ }
       }
     }
 
-    // Greedy minimal settlements across all participants in this event
+    // Single greedy over all event participants
     const debtors = [...netByUser.entries()]
       .filter(([, n]) => n < 0)
       .map(([uid, n]) => ({ userId: uid, amount: -n }))
@@ -334,19 +257,27 @@ export async function getContactProfile(contactId: string) {
       const transfer = Math.min(debtors[d].amount, creditors[c].amount);
       if (transfer > 0) {
         const fromId = debtors[d].userId;
-        const toId = creditors[c].userId;
+        const toId   = creditors[c].userId;
         const involvesContact = fromId === contactId || toId === contactId;
-        const involvesMe = fromId === user.id || toId === user.id;
-        // Show: contact ↔ other people (whether or not I'm involved)
-        if (involvesContact && !involvesMe) {
+        const involvesMe      = fromId === user.id   || toId === user.id;
+
+        if (involvesContact && involvesMe) {
+          // Direct me↔contact settlement for this event
+          eventSettlements.push({
+            eventId:  event.id,
+            eventName: event.name,
+            netCents: toId === user.id ? +transfer : -transfer,
+          });
+        } else if (involvesContact && !involvesMe) {
+          // Contact's settlement with a third party
           const otherId = fromId === contactId ? toId : fromId;
           const otherParticipant = event.participants.find((p) => p.userId === otherId);
           othersDebts.push({
-            eventId:   event.id,
-            eventName: event.name,
-            contactOwes: fromId === contactId,
+            eventId:         event.id,
+            eventName:       event.name,
+            contactOwes:     fromId === contactId,
             otherPersonName: otherParticipant?.user.name ?? null,
-            amountCents: transfer,
+            amountCents:     transfer,
           });
         }
       }
@@ -417,7 +348,5 @@ export async function getContactProfile(contactId: string) {
     }
   }
 
-  const netCents = balances.find((b) => b.userId === contactId)?.netCents ?? 0;
-
-  return { contact, netCents, sharedExpenses, billBreakdowns, othersDebts };
+  return { contact, sharedExpenses, eventSettlements, othersDebts };
 }
