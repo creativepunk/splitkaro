@@ -21,7 +21,7 @@ export default async function DashboardPage() {
   const [groups, events, globalBalances, contacts] = await Promise.all([
     getMyGroups().catch(() => []),
     getMyEvents().catch(() => []),
-    getGlobalBalances().catch(() => ({ balances: [], settlements: [] })),
+    getGlobalBalances().catch(() => ({ balances: [], settlements: [], currentUserId: "" })),
     getMyContacts().catch(() => []),
   ]);
   const { balances } = globalBalances;

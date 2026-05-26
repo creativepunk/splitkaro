@@ -13,9 +13,19 @@ export interface PersonBalance {
   netCents: number;
 }
 
+export interface RichSettlement {
+  fromUserId: string;
+  fromName: string | null;
+  toUserId: string;
+  toName: string | null;
+  amountCents: number;
+}
+
 export interface GlobalBalanceSummary {
   balances: PersonBalance[];
-  settlements: Settlement[];
+  /** Minimal set of transfers to settle all debts (includes the current user). */
+  settlements: RichSettlement[];
+  currentUserId: string;
 }
 
 /**
@@ -144,29 +154,52 @@ export async function getGlobalBalances(): Promise<GlobalBalanceSummary> {
     netCents: net.get(c.id) ?? 0,
   }));
 
-  // Minimal settlements
-  const debtors = balances
-    .filter((b) => b.netCents < 0)
-    .map((b) => ({ userId: b.userId, amount: -b.netCents }))
+  // ── Greedy minimal settlements across ALL participants (contacts + me) ────
+  // Sign convention for the settlement graph:
+  //   amount > 0 → creditor (should RECEIVE money)
+  //   amount < 0 → debtor   (should PAY money)
+  //
+  // net[contact] is stored from Pushpal's perspective:
+  //   net[X] > 0 means X owes Pushpal → X is a DEBTOR  → settlement amount = -net[X]
+  //   net[X] < 0 means Pushpal owes X → X is a CREDITOR → settlement amount = -net[X]
+  // For Pushpal: amount = sum of net[X] (positive = net creditor, negative = net debtor)
+  const contactNetSum = balances.reduce((s, b) => s + b.netCents, 0);
+
+  const allParticipants: Array<{ userId: string; name: string | null; amount: number }> = [
+    { userId: me.id, name: me.name, amount: contactNetSum },        // +ve = I'm owed overall
+    ...balances.map((b) => ({ userId: b.userId, name: b.name, amount: -b.netCents })), // flip: +ve net from my view → they're a debtor
+  ];
+
+  const debtors = allParticipants
+    .filter((p) => p.amount < 0)
+    .map((p) => ({ ...p, amount: -p.amount }))
     .sort((a, b) => b.amount - a.amount);
 
-  const creditors = balances
-    .filter((b) => b.netCents > 0)
-    .map((b) => ({ userId: b.userId, amount: b.netCents }))
+  const creditors = allParticipants
+    .filter((p) => p.amount > 0)
+    .map((p) => ({ ...p }))
     .sort((a, b) => b.amount - a.amount);
 
-  const settlements: Settlement[] = [];
+  const settlements: RichSettlement[] = [];
   let d = 0, c = 0;
   while (d < debtors.length && c < creditors.length) {
     const transfer = Math.min(debtors[d].amount, creditors[c].amount);
-    if (transfer > 0) settlements.push({ fromUserId: debtors[d].userId, toUserId: creditors[c].userId, amountCents: transfer });
+    if (transfer > 0) {
+      settlements.push({
+        fromUserId: debtors[d].userId,
+        fromName:   debtors[d].name,
+        toUserId:   creditors[c].userId,
+        toName:     creditors[c].name,
+        amountCents: transfer,
+      });
+    }
     debtors[d].amount -= transfer;
     creditors[c].amount -= transfer;
     if (debtors[d].amount === 0) d++;
     if (creditors[c].amount === 0) c++;
   }
 
-  return { balances, settlements };
+  return { balances, settlements, currentUserId: me.id };
 }
 
 // ── Per-event balance (for the event detail page) ──────────────────────────
