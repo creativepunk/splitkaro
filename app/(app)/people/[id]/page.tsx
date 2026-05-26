@@ -57,11 +57,17 @@ export default async function PersonProfilePage({ params }: { params: { id: stri
 
   // Group othersDebts by direction + other person name so multiple events
   // from the same pair are shown as a summed row with event breakdown below.
+  type OtherDebtEntry = {
+    id: string;
+    label: string;
+    href: string;
+    amountCents: number;
+  };
   type GroupedOtherDebt = {
     contactOwes: boolean;
     otherPersonName: string | null;
     totalAmountCents: number;
-    events: { eventId: string; eventName: string; amountCents: number }[];
+    entries: OtherDebtEntry[];
   };
   const othersMap = new Map<string, GroupedOtherDebt>();
   for (const d of othersDebts) {
@@ -71,12 +77,17 @@ export default async function PersonProfilePage({ params }: { params: { id: stri
         contactOwes: d.contactOwes,
         otherPersonName: d.otherPersonName,
         totalAmountCents: 0,
-        events: [],
+        entries: [],
       });
     }
     const g = othersMap.get(key)!;
     g.totalAmountCents += d.amountCents;
-    g.events.push({ eventId: d.eventId, eventName: d.eventName, amountCents: d.amountCents });
+    g.entries.push({
+      id:    d.eventId ?? d.expenseId ?? "",
+      label: d.eventName ?? d.expenseDescription ?? "",
+      href:  d.eventId ? `/events/${d.eventId}` : "/activity",
+      amountCents: d.amountCents,
+    });
   }
   const groupedOthers = [...othersMap.values()];
 
@@ -311,11 +322,17 @@ function BillRow({ bill, contactName }: { bill: BillBreakdown; contactName: stri
 // Grouped other-person debt row (sum header + per-event breakdown)
 // ---------------------------------------------------------------------------
 
+type OtherDebtEntry = {
+  id: string;
+  label: string;
+  href: string;
+  amountCents: number;
+};
 type GroupedOtherDebt = {
   contactOwes: boolean;
   otherPersonName: string | null;
   totalAmountCents: number;
-  events: { eventId: string; eventName: string; amountCents: number }[];
+  entries: OtherDebtEntry[];
 };
 
 function GroupedOtherDebtRow({
@@ -329,6 +346,18 @@ function GroupedOtherDebtRow({
   const amountColor = group.contactOwes
     ? "text-red-500 dark:text-red-400"
     : "text-emerald-600 dark:text-emerald-400";
+
+  const entryCount = group.entries.length;
+  const hasEvents   = group.entries.some((e) => e.href.startsWith("/events/"));
+  const hasExpenses = group.entries.some((e) => e.href === "/activity");
+  const subLabel =
+    entryCount > 1
+      ? hasEvents && hasExpenses
+        ? `across ${entryCount} expenses & events`
+        : hasExpenses
+        ? `across ${entryCount} expenses`
+        : `across ${entryCount} events`
+      : null;
 
   return (
     <div>
@@ -350,10 +379,8 @@ function GroupedOtherDebtRow({
               </>
             )}
           </p>
-          {group.events.length > 1 && (
-            <p className="text-xs text-zinc-400 mt-0.5">
-              across {group.events.length} events
-            </p>
+          {subLabel && (
+            <p className="text-xs text-zinc-400 mt-0.5">{subLabel}</p>
           )}
         </div>
         <span className={`text-sm font-bold tabular-nums shrink-0 ${amountColor}`}>
@@ -361,20 +388,20 @@ function GroupedOtherDebtRow({
         </span>
       </div>
 
-      {/* Per-event breakdown — always visible */}
+      {/* Per-entry breakdown */}
       <div className="pb-2 px-4 flex flex-col gap-0.5">
-        {group.events.map((ev) => (
+        {group.entries.map((entry) => (
           <Link
-            key={ev.eventId}
-            href={`/events/${ev.eventId}`}
+            key={entry.id}
+            href={entry.href}
             className="flex items-center gap-2 pl-4 pr-2 py-1.5 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors group"
           >
             <span className="text-zinc-300 dark:text-zinc-600 text-xs shrink-0">└</span>
             <span className="flex-1 text-xs text-zinc-500 group-hover:text-zinc-700 dark:group-hover:text-zinc-300 truncate">
-              {ev.eventName}
+              {entry.label}
             </span>
             <span className={`text-xs font-semibold tabular-nums shrink-0 ${amountColor}`}>
-              {formatCents(ev.amountCents)}
+              {formatCents(entry.amountCents)}
             </span>
           </Link>
         ))}

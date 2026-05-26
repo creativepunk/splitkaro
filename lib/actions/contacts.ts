@@ -28,8 +28,12 @@ export interface BillBreakdown {
 }
 
 export interface ContactOtherDebt {
-  eventId: string;
-  eventName: string;
+  /** Set for event-bill debts */
+  eventId?: string;
+  eventName?: string;
+  /** Set for direct-expense debts */
+  expenseId?: string;
+  expenseDescription?: string;
   /** true  = contact owes otherPerson; false = otherPerson owes contact */
   contactOwes: boolean;
   otherPersonName: string | null;
@@ -338,7 +342,7 @@ export async function getContactProfile(contactId: string) {
           const otherId = fromId === contactId ? toId : fromId;
           const otherParticipant = event.participants.find((p) => p.userId === otherId);
           othersDebts.push({
-            eventId: event.id,
+            eventId:   event.id,
             eventName: event.name,
             contactOwes: fromId === contactId,
             otherPersonName: otherParticipant?.user.name ?? null,
@@ -350,6 +354,66 @@ export async function getContactProfile(contactId: string) {
       creditors[c].amount -= transfer;
       if (debtors[d].amount === 0) d++;
       if (creditors[c].amount === 0) c++;
+    }
+  }
+
+  // ── Direct expense debts between the contact and third parties ───────────
+  // Case A: contact is a split participant; payer is someone other than me or contact
+  // Case B: contact is the payer; split includes someone other than me or contact
+  const contactDirectDebts = await prisma.directExpense.findMany({
+    where: {
+      OR: [
+        {
+          splits: { some: { userId: contactId } },
+          paidById: { notIn: [user.id, contactId] },
+        },
+        {
+          paidById: contactId,
+          splits: { some: { userId: { notIn: [user.id, contactId] } } },
+        },
+      ],
+    },
+    include: {
+      paidByUser: { select: { id: true, name: true } },
+      splits: { include: { user: { select: { id: true, name: true } } } },
+    },
+  });
+
+  for (const exp of contactDirectDebts) {
+    if (exp.paidById !== contactId) {
+      // Case A: third party paid → contact owes payer their share
+      const contactSplit = exp.splits.find((s) => s.userId === contactId);
+      if (contactSplit) {
+        const shareCents = Math.round(
+          exp.totalCents * (contactSplit.numerator / contactSplit.denominator)
+        );
+        if (shareCents > 0) {
+          othersDebts.push({
+            expenseId: exp.id,
+            expenseDescription: exp.description,
+            contactOwes: true,
+            otherPersonName: exp.paidByUser.name,
+            amountCents: shareCents,
+          });
+        }
+      }
+    } else {
+      // Case B: contact paid → each third-party split participant owes contact
+      for (const split of exp.splits) {
+        if (split.userId === user.id || split.userId === contactId) continue;
+        const shareCents = Math.round(
+          exp.totalCents * (split.numerator / split.denominator)
+        );
+        if (shareCents > 0) {
+          othersDebts.push({
+            expenseId: exp.id,
+            expenseDescription: exp.description,
+            contactOwes: false,
+            otherPersonName: split.user.name,
+            amountCents: shareCents,
+          });
+        }
+      }
     }
   }
 
