@@ -207,14 +207,14 @@ function BillsTab({
                     className="w-full px-4 pt-4 pb-4 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
                   >
                     <div className="flex items-start gap-3">
-                      {/* Left: name + items + date */}
+                      {/* Left: name + items (multi only) + date */}
                       <div className="flex-1 min-w-0">
                         <h3 className="text-base font-bold text-zinc-900 dark:text-white leading-snug">
                           {est.name}
                         </h3>
-                        {bill.lineItems.length > 0 && (
+                        {bill.lineItems.length > 1 && (
                           <p className="text-sm text-zinc-500 mt-0.5">
-                            {bill.lineItems.length} item{bill.lineItems.length !== 1 ? "s" : ""}
+                            {bill.lineItems.length} items
                           </p>
                         )}
                         <p className="text-sm text-zinc-400 mt-0.5">{dateLabel}</p>
