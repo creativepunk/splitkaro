@@ -18,6 +18,17 @@ export interface EventSettlement {
   netCents: number;
 }
 
+export interface ContactListItem {
+  id: string;
+  name: string | null;
+  image: string | null;
+  isMe: boolean;
+  /** total they owe others (events + direct expenses, scoped to Pushpal's events) */
+  totalOwes: number;
+  /** total others owe them */
+  totalOwed: number;
+}
+
 export interface ContactOtherDebt {
   /** Set for event-bill debts */
   eventId?: string;
@@ -88,6 +99,138 @@ export async function getMyParticipants() {
     }),
   ]);
   return [me!, ...contacts];
+}
+
+// ---------------------------------------------------------------------------
+// Get full list data: current user + all contacts with owes/owed totals
+// ---------------------------------------------------------------------------
+
+export async function getContactListData(): Promise<ContactListItem[]> {
+  const user = await requireUser();
+
+  const contacts = await prisma.user.findMany({
+    where: { isContact: true, contactOwnerId: user.id },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, image: true },
+  });
+
+  const trackedIds = new Set([user.id, ...contacts.map((c) => c.id)]);
+
+  // owes[uid] = total they owe;  owed[uid] = total owed to them
+  const owes = new Map<string, number>();
+  const owed  = new Map<string, number>();
+  for (const id of trackedIds) { owes.set(id, 0); owed.set(id, 0); }
+
+  // ── Events: one greedy pass per event ─────────────────────────────────
+  const events = await prisma.event.findMany({
+    where: { participants: { some: { userId: user.id } } },
+    include: {
+      participants: { select: { userId: true } },
+      establishments: {
+        include: {
+          bills: {
+            include: {
+              lineItems: { include: { fractions: true } },
+              payments: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  for (const event of events) {
+    const netByUser = new Map<string, number>();
+    for (const p of event.participants) netByUser.set(p.userId, 0);
+
+    for (const est of event.establishments) {
+      for (const bill of est.bills) {
+        try {
+          const result = calculateBillBalances({
+            totalCents:    bill.totalCents,
+            subtotalCents: bill.subtotalCents,
+            taxCents:      bill.taxCents,
+            tipCents:      bill.tipCents,
+            gratuityCents: bill.gratuityCents,
+            lineItems: bill.lineItems.map((li) => ({
+              id: li.id, name: li.name, totalCents: li.totalCents,
+              fractions: li.fractions.map((f) => ({
+                userId: f.userId,
+                fraction: { numerator: f.numerator, denominator: f.denominator },
+              })),
+            })),
+            payments: bill.payments.map((p) => ({ userId: p.userId, amountCents: p.amountCents })),
+          });
+          for (const ub of result.userBalances) {
+            netByUser.set(ub.userId, (netByUser.get(ub.userId) ?? 0) + ub.netCents);
+          }
+        } catch { /* skip malformed bills */ }
+      }
+    }
+
+    const evDebtors = [...netByUser.entries()]
+      .filter(([, n]) => n < 0).map(([uid, n]) => ({ userId: uid, amount: -n }))
+      .sort((a, b) => b.amount - a.amount);
+    const evCreditors = [...netByUser.entries()]
+      .filter(([, n]) => n > 0).map(([uid, n]) => ({ userId: uid, amount: n }))
+      .sort((a, b) => b.amount - a.amount);
+
+    let d = 0, c = 0;
+    while (d < evDebtors.length && c < evCreditors.length) {
+      const transfer = Math.min(evDebtors[d].amount, evCreditors[c].amount);
+      if (transfer > 0) {
+        const fromId = evDebtors[d].userId;
+        const toId   = evCreditors[c].userId;
+        if (trackedIds.has(fromId)) owes.set(fromId, (owes.get(fromId) ?? 0) + transfer);
+        if (trackedIds.has(toId))   owed.set(toId,   (owed.get(toId)   ?? 0) + transfer);
+      }
+      evDebtors[d].amount -= transfer;
+      evCreditors[c].amount -= transfer;
+      if (evDebtors[d].amount === 0) d++;
+      if (evCreditors[c].amount === 0) c++;
+    }
+  }
+
+  // ── Direct expenses ────────────────────────────────────────────────────
+  const directExpenses = await prisma.directExpense.findMany({
+    where: {
+      OR: [
+        { paidById: { in: [...trackedIds] } },
+        { splits: { some: { userId: { in: [...trackedIds] } } } },
+      ],
+    },
+    include: { splits: true },
+  });
+
+  for (const de of directExpenses) {
+    for (const split of de.splits) {
+      if (split.userId === de.paidById) continue; // skip payer's own split
+      const share = Math.round((de.totalCents * split.numerator) / split.denominator);
+      if (share <= 0) continue;
+      // split.userId owes de.paidById
+      if (trackedIds.has(split.userId)) owes.set(split.userId, (owes.get(split.userId) ?? 0) + share);
+      if (trackedIds.has(de.paidById))  owed.set(de.paidById,  (owed.get(de.paidById)  ?? 0) + share);
+    }
+  }
+
+  return [
+    {
+      id:        user.id,
+      name:      user.name ?? null,
+      image:     user.image ?? null,
+      isMe:      true,
+      totalOwes: owes.get(user.id) ?? 0,
+      totalOwed: owed.get(user.id)  ?? 0,
+    },
+    ...contacts.map((c) => ({
+      id:        c.id,
+      name:      c.name,
+      image:     c.image,
+      isMe:      false,
+      totalOwes: owes.get(c.id) ?? 0,
+      totalOwed: owed.get(c.id)  ?? 0,
+    })),
+  ];
 }
 
 // ---------------------------------------------------------------------------
