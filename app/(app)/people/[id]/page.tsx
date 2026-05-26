@@ -18,7 +18,7 @@ type SharedExpense = Awaited<ReturnType<typeof getContactProfile>>["sharedExpens
 
 export default async function PersonProfilePage({ params }: { params: { id: string } }) {
   const me = await requireUser();
-  const { contact, netCents, sharedExpenses, billBreakdowns, othersDebts } =
+  const { contact, sharedExpenses, billBreakdowns, othersDebts } =
     await getContactProfile(params.id);
 
   if (!contact) notFound();
@@ -49,11 +49,6 @@ export default async function PersonProfilePage({ params }: { params: { id: stri
       const sp = e.splits.find((x) => x.userId === me.id);
       return s + (sp ? Math.round(e.totalCents * (sp.numerator / sp.denominator)) : 0);
     }, 0);
-
-  const hasTheyOwe = theyOweMeBills.length > 0 || theyOweMeExpenses.length > 0;
-  const hasIOwe    = iOweThemBills.length > 0  || iOweThemExpenses.length > 0;
-  const hasOthers  = othersDebts.length > 0;
-  const hasAnything = hasTheyOwe || hasIOwe || hasOthers;
 
   // Group othersDebts by direction + other person name so multiple events
   // from the same pair are shown as a summed row with event breakdown below.
@@ -89,7 +84,26 @@ export default async function PersonProfilePage({ params }: { params: { id: stri
       amountCents: d.amountCents,
     });
   }
-  const groupedOthers = [...othersMap.values()];
+  // Split third-party debts by direction so they merge into the two main sections
+  const contactOwesOthers = [...othersMap.values()].filter((g) => g.contactOwes);
+  const othersOweContact  = [...othersMap.values()].filter((g) => !g.contactOwes);
+
+  // Total what contact owes overall (to you + to third parties)
+  const totalContactOwes =
+    theyOweMeTotal +
+    contactOwesOthers.reduce((s, g) => s + g.totalAmountCents, 0);
+
+  // Total what's owed to contact overall (from you + from third parties)
+  const totalOwedToContact =
+    iOweThemTotal +
+    othersOweContact.reduce((s, g) => s + g.totalAmountCents, 0);
+
+  // Overall net: positive = contact owes more than is owed to them
+  const overallNet = totalContactOwes - totalOwedToContact;
+
+  const hasOwes    = theyOweMeBills.length > 0 || theyOweMeExpenses.length > 0 || contactOwesOthers.length > 0;
+  const hasOwed    = iOweThemBills.length > 0  || iOweThemExpenses.length > 0  || othersOweContact.length > 0;
+  const hasAnything = hasOwes || hasOwed;
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-5">
@@ -99,21 +113,18 @@ export default async function PersonProfilePage({ params }: { params: { id: stri
         <Avatar name={contact.name!} size="lg" />
         <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-white truncate">{contact.name}</h1>
-          {netCents === 0 && !hasOthers ? (
+          {!hasAnything ? (
             <p className="text-sm text-zinc-500 mt-0.5">All settled up 🎉</p>
+          ) : overallNet > 0 ? (
+            <span className="text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-full px-2.5 py-0.5 mt-1 inline-block">
+              owes {formatCents(overallNet)} overall
+            </span>
+          ) : overallNet < 0 ? (
+            <span className="text-xs font-semibold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-full px-2.5 py-0.5 mt-1 inline-block">
+              is owed {formatCents(-overallNet)} overall
+            </span>
           ) : (
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              {netCents > 0 && (
-                <span className="text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-full px-2.5 py-0.5">
-                  owes you {formatCents(netCents)}
-                </span>
-              )}
-              {netCents < 0 && (
-                <span className="text-xs font-semibold bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900 rounded-full px-2.5 py-0.5">
-                  you owe {formatCents(-netCents)}
-                </span>
-              )}
-            </div>
+            <p className="text-sm text-zinc-500 mt-0.5">Net settled 🎉</p>
           )}
         </div>
       </div>
@@ -129,9 +140,9 @@ export default async function PersonProfilePage({ params }: { params: { id: stri
         <PersonActions contactId={contact.id} currentName={contact.name!} />
       </div>
 
-      {/* ── They owe you ── */}
-      {hasTheyOwe && (
-        <DirectionSection direction="they-owe" label={`${firstName} owes you`} total={theyOweMeTotal}>
+      {/* ── What contact owes (to you + to others) ── */}
+      {hasOwes && (
+        <DirectionSection direction="they-owe" label={`${firstName} owes`} total={totalContactOwes}>
           {theyOweMeBills.map((b) => (
             <BillRow key={b.billId} bill={b} contactName={contact.name!} />
           ))}
@@ -147,12 +158,15 @@ export default async function PersonProfilePage({ params }: { params: { id: stri
               />
             );
           })}
+          {contactOwesOthers.map((group, i) => (
+            <GroupedOtherDebtRow key={`owe-${i}`} group={group} contactFirstName={firstName} />
+          ))}
         </DirectionSection>
       )}
 
-      {/* ── You owe them ── */}
-      {hasIOwe && (
-        <DirectionSection direction="i-owe" label={`You owe ${firstName}`} total={iOweThemTotal}>
+      {/* ── What's owed to contact (from you + from others) ── */}
+      {hasOwed && (
+        <DirectionSection direction="i-owe" label={`Owed to ${firstName}`} total={totalOwedToContact}>
           {iOweThemBills.map((b) => (
             <BillRow key={b.billId} bill={b} contactName={contact.name!} />
           ))}
@@ -168,26 +182,10 @@ export default async function PersonProfilePage({ params }: { params: { id: stri
               />
             );
           })}
+          {othersOweContact.map((group, i) => (
+            <GroupedOtherDebtRow key={`owed-${i}`} group={group} contactFirstName={firstName} />
+          ))}
         </DirectionSection>
-      )}
-
-      {/* ── With others in shared events ── */}
-      {hasOthers && (
-        <div className="rounded-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800">
-          <div className="px-4 py-3 bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800">
-            <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">
-              {firstName}&apos;s other debts
-            </p>
-            <p className="text-xs text-zinc-500 mt-0.5">
-              Settlements with others in shared events
-            </p>
-          </div>
-          <div className="divide-y divide-zinc-100 dark:divide-zinc-800 bg-white dark:bg-zinc-950">
-            {groupedOthers.map((group, i) => (
-              <GroupedOtherDebtRow key={i} group={group} contactFirstName={firstName} />
-            ))}
-          </div>
-        </div>
       )}
 
       {/* ── Empty ── */}
