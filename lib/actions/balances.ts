@@ -30,8 +30,11 @@ export interface GlobalBalanceSummary {
 
 /**
  * Compute net balances between the current user and all their contacts
- * from direct expenses only. Event debts are managed per-event via
- * getEventBalances and displayed in each event's Settle Up tab.
+ * across events (per-event simplification) and direct expenses.
+ *
+ * For events: accumulate bill netCents per participant per event, then run
+ * one greedy settlement per event — identical to getEventBalances. Only the
+ * settlements that involve the current user are captured.
  */
 export async function getGlobalBalances(): Promise<GlobalBalanceSummary> {
   const me = await requireUser();
@@ -45,6 +48,90 @@ export async function getGlobalBalances(): Promise<GlobalBalanceSummary> {
   // netCents[userId] = how much they owe me (positive) or I owe them (negative)
   const net = new Map<string, number>();
   contacts.forEach((c) => net.set(c.id, 0));
+
+  // ── Event bills (per-event simplification) ──────────────────────────────
+  const events = await prisma.event.findMany({
+    where: { participants: { some: { userId: me.id } } },
+    include: {
+      participants: { select: { userId: true } },
+      establishments: {
+        include: {
+          bills: {
+            include: {
+              lineItems: { include: { fractions: true } },
+              payments: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  for (const event of events) {
+    // Accumulate net per user across ALL bills in this event first
+    const netByUser = new Map<string, number>();
+    for (const p of event.participants) netByUser.set(p.userId, 0);
+
+    for (const est of event.establishments) {
+      for (const bill of est.bills) {
+        try {
+          const result = calculateBillBalances({
+            totalCents: bill.totalCents,
+            subtotalCents: bill.subtotalCents,
+            taxCents: bill.taxCents,
+            tipCents: bill.tipCents,
+            gratuityCents: bill.gratuityCents,
+            lineItems: bill.lineItems.map((li) => ({
+              id: li.id,
+              name: li.name,
+              totalCents: li.totalCents,
+              fractions: li.fractions.map((f) => ({
+                userId: f.userId,
+                fraction: { numerator: f.numerator, denominator: f.denominator },
+              })),
+            })),
+            payments: bill.payments.map((p) => ({
+              userId: p.userId,
+              amountCents: p.amountCents,
+            })),
+          });
+          for (const ub of result.userBalances) {
+            netByUser.set(ub.userId, (netByUser.get(ub.userId) ?? 0) + ub.netCents);
+          }
+        } catch {
+          // skip malformed bills
+        }
+      }
+    }
+
+    // One greedy settlement pass over all event participants
+    const evDebtors = [...netByUser.entries()]
+      .filter(([, n]) => n < 0)
+      .map(([uid, n]) => ({ userId: uid, amount: -n }))
+      .sort((a, b) => b.amount - a.amount);
+    const evCreditors = [...netByUser.entries()]
+      .filter(([, n]) => n > 0)
+      .map(([uid, n]) => ({ userId: uid, amount: n }))
+      .sort((a, b) => b.amount - a.amount);
+
+    let d = 0, c = 0;
+    while (d < evDebtors.length && c < evCreditors.length) {
+      const transfer = Math.min(evDebtors[d].amount, evCreditors[c].amount);
+      if (transfer > 0) {
+        const fromId = evDebtors[d].userId;
+        const toId   = evCreditors[c].userId;
+        if (toId === me.id && net.has(fromId)) {
+          net.set(fromId, (net.get(fromId) ?? 0) + transfer);
+        } else if (fromId === me.id && net.has(toId)) {
+          net.set(toId, (net.get(toId) ?? 0) - transfer);
+        }
+      }
+      evDebtors[d].amount -= transfer;
+      evCreditors[c].amount -= transfer;
+      if (evDebtors[d].amount === 0) d++;
+      if (evCreditors[c].amount === 0) c++;
+    }
+  }
 
   // ── Direct expenses ──────────────────────────────────────────────────────
   // Fetch expenses where I paid OR I'm a split participant

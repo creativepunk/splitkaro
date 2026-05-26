@@ -55,9 +55,6 @@ export default async function PersonProfilePage({ params }: { params: { id: stri
   const hasOthers  = othersDebts.length > 0;
   const hasAnything = hasTheyOwe || hasIOwe || hasOthers;
 
-  // True net across all sources (event bills + direct expenses)
-  const profileNet = theyOweMeTotal - iOweThemTotal;
-
   // Group othersDebts by direction + other person name so multiple events
   // from the same pair are shown as a summed row with event breakdown below.
   type OtherDebtEntry = {
@@ -102,27 +99,18 @@ export default async function PersonProfilePage({ params }: { params: { id: stri
         <Avatar name={contact.name!} size="lg" />
         <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-white truncate">{contact.name}</h1>
-          {!hasAnything ? (
+          {netCents === 0 && !hasOthers ? (
             <p className="text-sm text-zinc-500 mt-0.5">All settled up 🎉</p>
           ) : (
             <div className="flex items-center gap-2 mt-1 flex-wrap">
-              {theyOweMeTotal > 0 && (
+              {netCents > 0 && (
                 <span className="text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-full px-2.5 py-0.5">
-                  owes you {formatCents(theyOweMeTotal)}
+                  owes you {formatCents(netCents)}
                 </span>
               )}
-              {iOweThemTotal > 0 && (
+              {netCents < 0 && (
                 <span className="text-xs font-semibold bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900 rounded-full px-2.5 py-0.5">
-                  you owe {formatCents(iOweThemTotal)}
-                </span>
-              )}
-              {theyOweMeTotal > 0 && iOweThemTotal > 0 && (
-                <span className={`text-xs font-semibold ${
-                  profileNet > 0
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-red-500 dark:text-red-400"
-                }`}>
-                  net {profileNet > 0 ? "+" : "−"}{formatCents(Math.abs(profileNet))}
+                  you owe {formatCents(-netCents)}
                 </span>
               )}
             </div>
