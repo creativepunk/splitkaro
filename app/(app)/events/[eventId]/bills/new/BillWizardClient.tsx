@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { BillSplitterWizard } from "@/components/bill-wizard/BillSplitterWizard";
 import { createBill } from "@/lib/actions/bills";
 import type { useBillWizard } from "@/components/bill-wizard/useBillWizard";
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function BillWizardClient({ eventId, participants }: Props) {
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -61,7 +63,11 @@ export function BillWizardClient({ eventId, participants }: Props) {
           {error}
         </div>
       )}
-      <BillSplitterWizard participants={participants} onComplete={handleComplete} />
+      <BillSplitterWizard
+        participants={participants}
+        onComplete={handleComplete}
+        onCancel={() => router.push(`/events/${eventId}`)}
+      />
     </>
   );
 }

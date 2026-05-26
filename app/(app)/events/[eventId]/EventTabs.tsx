@@ -55,8 +55,8 @@ interface EventTabsProps {
 
 const TABS = [
   { id: "bills" as const, label: "Bills" },
+  { id: "settleup" as const, label: "Settle up" },
   { id: "balances" as const, label: "Balances" },
-  { id: "settleup" as const, label: "Settle Up" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 

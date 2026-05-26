@@ -19,6 +19,7 @@ interface BillSplitterWizardProps {
   participants: WizardParticipant[];
   onComplete: (wizard: ReturnType<typeof useBillWizard>) => void;
   initialData?: InitialBillData;
+  onCancel?: () => void;
 }
 
 interface SplitScreen {
@@ -34,7 +35,7 @@ const STEPS = ["Upload Receipt", "Items & Shares", "Log Payments"] as const;
 // Root wizard
 // ---------------------------------------------------------------------------
 
-export function BillSplitterWizard({ participants, onComplete, initialData }: BillSplitterWizardProps) {
+export function BillSplitterWizard({ participants, onComplete, initialData, onCancel }: BillSplitterWizardProps) {
   const wizard = useBillWizard(participants, initialData);
   const ocr = useOCR();
   const { state, next, back, canSubmit } = wizard;
@@ -113,14 +114,23 @@ export function BillSplitterWizard({ participants, onComplete, initialData }: Bi
       {/* Progress */}
       <div className="sticky top-0 z-10 bg-white dark:bg-zinc-950 border-b border-zinc-100 dark:border-zinc-800 px-4 pt-4 pb-3">
         <div className="flex items-center gap-2 mb-2">
-          {state.step > 1 && (
+          {state.step === 1 && onCancel ? (
+            <button
+              onClick={onCancel}
+              className="w-8 h-8 -ml-1 flex items-center justify-center rounded-full text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors shrink-0"
+              aria-label="Back"
+            >
+              <BackArrowIcon />
+            </button>
+          ) : state.step > 1 ? (
             <button
               onClick={back}
-              className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-white -ml-1 px-1 py-0.5"
+              className="w-8 h-8 -ml-1 flex items-center justify-center rounded-full text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors shrink-0"
+              aria-label="Back"
             >
-              ← Back
+              <BackArrowIcon />
             </button>
-          )}
+          ) : null}
           <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
             {STEPS[state.step - 1]}
           </span>
@@ -651,6 +661,18 @@ function XIcon() {
   return (
     <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
       <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+    </svg>
+  );
+}
+
+function BackArrowIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+      <path
+        fillRule="evenodd"
+        d="M17 10a.75.75 0 0 1-.75.75H5.612l4.158 3.96a.75.75 0 1 1-1.04 1.08l-5.5-5.25a.75.75 0 0 1 0-1.08l5.5-5.25a.75.75 0 1 1 1.04 1.08L5.612 9.25H16.25A.75.75 0 0 1 17 10Z"
+        clipRule="evenodd"
+      />
     </svg>
   );
 }

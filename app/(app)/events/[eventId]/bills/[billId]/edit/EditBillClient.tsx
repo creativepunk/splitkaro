@@ -1,17 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { BillSplitterWizard } from "@/components/bill-wizard/BillSplitterWizard";
 import { updateBill } from "@/lib/actions/bills";
 import type { useBillWizard, InitialBillData } from "@/components/bill-wizard/useBillWizard";
 
 interface Props {
   billId: string;
+  eventId: string;
   participants: Array<{ id: string; name: string; image?: string | null }>;
   initialData: InitialBillData;
 }
 
-export function EditBillClient({ billId, participants, initialData }: Props) {
+export function EditBillClient({ billId, eventId, participants, initialData }: Props) {
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -64,6 +67,7 @@ export function EditBillClient({ billId, participants, initialData }: Props) {
         participants={participants}
         onComplete={handleComplete}
         initialData={initialData}
+        onCancel={() => router.push(`/events/${eventId}`)}
       />
     </>
   );

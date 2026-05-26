@@ -65,6 +65,7 @@ export default async function EditBillPage({
   return (
     <EditBillClient
       billId={params.billId}
+      eventId={params.eventId}
       participants={participants}
       initialData={initialData}
     />
