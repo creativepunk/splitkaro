@@ -55,6 +55,9 @@ export default async function PersonProfilePage({ params }: { params: { id: stri
   const hasOthers  = othersDebts.length > 0;
   const hasAnything = hasTheyOwe || hasIOwe || hasOthers;
 
+  // True net across all sources (event bills + direct expenses)
+  const profileNet = theyOweMeTotal - iOweThemTotal;
+
   // Group othersDebts by direction + other person name so multiple events
   // from the same pair are shown as a summed row with event breakdown below.
   type OtherDebtEntry = {
@@ -99,7 +102,7 @@ export default async function PersonProfilePage({ params }: { params: { id: stri
         <Avatar name={contact.name!} size="lg" />
         <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-white truncate">{contact.name}</h1>
-          {netCents === 0 && !hasOthers ? (
+          {!hasAnything ? (
             <p className="text-sm text-zinc-500 mt-0.5">All settled up 🎉</p>
           ) : (
             <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -115,11 +118,11 @@ export default async function PersonProfilePage({ params }: { params: { id: stri
               )}
               {theyOweMeTotal > 0 && iOweThemTotal > 0 && (
                 <span className={`text-xs font-semibold ${
-                  netCents > 0
+                  profileNet > 0
                     ? "text-emerald-600 dark:text-emerald-400"
                     : "text-red-500 dark:text-red-400"
                 }`}>
-                  net {netCents > 0 ? "+" : "−"}{formatCents(Math.abs(netCents))}
+                  net {profileNet > 0 ? "+" : "−"}{formatCents(Math.abs(profileNet))}
                 </span>
               )}
             </div>
