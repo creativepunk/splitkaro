@@ -30,7 +30,8 @@ export interface GlobalBalanceSummary {
 
 /**
  * Compute net balances between the current user and all their contacts
- * across every event bill and every direct expense they share.
+ * from direct expenses only. Event debts are managed per-event via
+ * getEventBalances and displayed in each event's Settle Up tab.
  */
 export async function getGlobalBalances(): Promise<GlobalBalanceSummary> {
   const me = await requireUser();
@@ -44,63 +45,6 @@ export async function getGlobalBalances(): Promise<GlobalBalanceSummary> {
   // netCents[userId] = how much they owe me (positive) or I owe them (negative)
   const net = new Map<string, number>();
   contacts.forEach((c) => net.set(c.id, 0));
-
-  // ── Event bills ──────────────────────────────────────────────────────────
-  const events = await prisma.event.findMany({
-    where: { participants: { some: { userId: me.id } } },
-    include: {
-      establishments: {
-        include: {
-          bills: {
-            include: {
-              lineItems: { include: { fractions: true } },
-              payments: true,
-            },
-          },
-        },
-      },
-    },
-  });
-
-  for (const event of events) {
-    for (const est of event.establishments) {
-      for (const bill of est.bills) {
-        try {
-          const result = calculateBillBalances({
-            totalCents: bill.totalCents,
-            subtotalCents: bill.subtotalCents,
-            taxCents: bill.taxCents,
-            tipCents: bill.tipCents,
-            gratuityCents: bill.gratuityCents,
-            lineItems: bill.lineItems.map((li) => ({
-              id: li.id,
-              name: li.name,
-              totalCents: li.totalCents,
-              fractions: li.fractions.map((f) => ({
-                userId: f.userId,
-                fraction: { numerator: f.numerator, denominator: f.denominator },
-              })),
-            })),
-            payments: bill.payments.map((p) => ({
-              userId: p.userId,
-              amountCents: p.amountCents,
-            })),
-          });
-
-          // Use settlements — cleaner
-          for (const s of result.settlements) {
-            if (s.toUserId === me.id && net.has(s.fromUserId)) {
-              net.set(s.fromUserId, (net.get(s.fromUserId) ?? 0) + s.amountCents);
-            } else if (s.fromUserId === me.id && net.has(s.toUserId)) {
-              net.set(s.toUserId, (net.get(s.toUserId) ?? 0) - s.amountCents);
-            }
-          }
-        } catch {
-          // skip malformed bills
-        }
-      }
-    }
-  }
 
   // ── Direct expenses ──────────────────────────────────────────────────────
   // Fetch expenses where I paid OR I'm a split participant
