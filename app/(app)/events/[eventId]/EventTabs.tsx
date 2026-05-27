@@ -291,6 +291,9 @@ function BillsTab({
                         </span>
                       </div>
 
+                      {/* Per-person shares */}
+                      <PersonShares bill={bill} members={members} currentUserId={currentUserId} />
+
                       {/* Payments with avatars */}
                       {bill.payments.length > 0 && (
                         <div className="flex flex-wrap gap-1.5">
@@ -411,6 +414,68 @@ function BillSettlements({
           </span>
         );
       })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Per-person shares (expanded bill)
+// ---------------------------------------------------------------------------
+
+function PersonShares({
+  bill,
+  members,
+  currentUserId,
+}: {
+  bill: BillData;
+  members: Member[];
+  currentUserId: string;
+}) {
+  let userBalances: Array<{ userId: string; owedCents: number; paidCents: number; netCents: number }> = [];
+  try {
+    const result = calculateBillBalances({
+      totalCents: bill.totalCents,
+      subtotalCents: bill.subtotalCents,
+      taxCents: bill.taxCents,
+      tipCents: bill.tipCents,
+      gratuityCents: bill.gratuityCents,
+      lineItems: bill.lineItems.map((li) => ({
+        id: li.id,
+        name: li.name,
+        totalCents: li.totalCents,
+        fractions: li.fractions.map((f) => ({
+          userId: f.userId,
+          fraction: { numerator: f.numerator, denominator: f.denominator },
+        })),
+      })),
+      payments: bill.payments,
+    });
+    userBalances = result.userBalances;
+  } catch {
+    return null;
+  }
+
+  const relevant = userBalances.filter((b) => b.owedCents > 0);
+  if (relevant.length === 0) return null;
+
+  return (
+    <div className="border-t border-zinc-100 dark:border-zinc-800 pt-2">
+      <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2">Shares</p>
+      <div className="flex flex-col gap-1.5">
+        {relevant.map((b) => {
+          const u = members.find((m) => m.id === b.userId);
+          const name = b.userId === currentUserId ? "You" : (u?.name ?? "?");
+          return (
+            <div key={b.userId} className="flex items-center gap-2">
+              <Avatar name={u?.name} image={u?.image} size="xs" />
+              <span className="flex-1 text-sm text-zinc-700 dark:text-zinc-300 truncate">{name}</span>
+              <span className="text-sm tabular-nums font-medium text-zinc-600 dark:text-zinc-400">
+                {formatCents(b.owedCents)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
